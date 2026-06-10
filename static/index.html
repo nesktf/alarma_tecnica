@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Alarma</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="stylesheet" href="/css/pico.min.css"/>
+    <link rel="stylesheet" href="/css/style.css">
+  </head>
+
+  <body>
+    <main class="container">
+      <article>
+        <h3 style="text-align: center">Notificaciones</h3>
+      </article>
+      <div id="gridContent">
+      </div>
+    </main>
+  </body>
+
+  <template id="templGridRow">
+    <div class="grid">
+      {{#elems}}
+      <article class="grid-item">
+        <header>
+          <h5 style="text-align: center">{{title}}</h5>
+        </header>
+        <section class="grid-content">
+          <p>Estado actual</p>
+          <div class="light-indicator" style="background-color: {{statusColor}}">
+            {{statusStr}}
+          </div>
+        </section>
+      </article>
+      {{/elems}}
+    </div>
+  </template>
+
+  <script src="/js/mustache.js"></script>
+  <script src="/js/main.js"></script>
+</html>
