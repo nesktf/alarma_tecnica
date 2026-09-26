@@ -6,15 +6,17 @@
 #include "./webpage.h"
 
 // fill these with network data
-static const char ssid[] = "";
-static const char pswd[] = "";
-static IPAddress local_ip{192, 168, 0, 53};
+static const char ssid[] = "Jef. de Taller EET3139";
+static const char pswd[] = "777Gt3W!cuBP@";
+static IPAddress local_ip{192, 168, 0, 108};
 static IPAddress gateway {192, 168, 0, 1};
 static IPAddress subnet {255, 255, 255, 0};
 
 #define SRL_BAUD 9600
 #define SERVER_PORT 80
-//#define WIFI_DEBUG
+#define TRIG_PIN 22
+#define ECHO_PIN 21
+#define WIFI_DEBUG
 
 #define HALT() for(;;)
 
@@ -38,8 +40,8 @@ static void init_wifi() {
 }
 
 static void init_server(const char* path, void(*callback)()) {
-  server.on(path, callback);
   server.begin();
+  server.on(path, callback);
   Serial.print("Server: Initialized -> ");
   Serial.println(path);
 }
@@ -57,20 +59,45 @@ static void blink_led() {
   digitalWrite(LED_BUILTIN, HIGH);
 }
 
+#define SOUND_VEL 0.034
+
+static float distance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(TRIG_PIN, LOW);
+
+  const auto duration = pulseIn(ECHO_PIN, HIGH);
+  const float distance = (float)duration * SOUND_VEL/2.f;
+  
+  delay(1000);
+  return distance;
+}
 
 void setup() {
   Serial.begin(SRL_BAUD);
   while (!Serial);
+#if 0
   init_wifi();
   init_server("/", +[]() {
+    Serial.println("adasdasdasd");
     String response = WEB_SRC;
     server.send(200, "text/html", response);
     Serial.print("Server: GET response -> ");
     Serial.println(response);
   });
+#endif
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
   blink_led();
+  Serial.println("init!");
 }
 
 void loop() {
-  server.handleClient();
+  //server.handleClient();
+  const float d = distance();
+  Serial.print("Distance: ");
+  Serial.println(d);
 }
