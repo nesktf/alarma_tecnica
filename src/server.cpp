@@ -4,16 +4,18 @@
 #include <ESP8266WebServer.h>
 
 #include "./webpage.h"
+#include "credentials.h"
 
-// fill these with network data
-static const char ssid[] = "";
-static const char pswd[] = "";
-static IPAddress local_ip{192, 168, 0, 53};
-static IPAddress gateway {192, 168, 0, 1};
-static IPAddress subnet {255, 255, 255, 0};
+static const char ssid[] = WIFI_SSID;
+static const char pswd[] = WIFI_PASS;
+static auto local_ip = SERVER_IP;
+static auto gateway = SERVER_GATEWAY;
+static auto subnet = SERVER_MASK;
 
 #define SRL_BAUD 9600
 #define SERVER_PORT 80
+#define TRIG_PIN 22
+#define ECHO_PIN 21
 //#define WIFI_DEBUG
 
 #define HALT() for(;;)
@@ -38,8 +40,8 @@ static void init_wifi() {
 }
 
 static void init_server(const char* path, void(*callback)()) {
-  server.on(path, callback);
   server.begin();
+  server.on(path, callback);
   Serial.print("Server: Initialized -> ");
   Serial.println(path);
 }
@@ -57,6 +59,24 @@ static void blink_led() {
   digitalWrite(LED_BUILTIN, HIGH);
 }
 
+#if 0
+#define SOUND_VEL 0.034
+
+static float distance() {
+  digitalWrite(TRIG_PIN, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG_PIN, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(TRIG_PIN, LOW);
+
+  const auto duration = pulseIn(ECHO_PIN, HIGH);
+  const float distance = (float)duration * SOUND_VEL/2.f;
+  
+  delay(1000);
+  return distance;
+}
+#endif
 
 void setup() {
   Serial.begin(SRL_BAUD);
