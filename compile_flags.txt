@@ -10,6 +10,8 @@
 -Ilib/esp8266/libraries/ESP8266WebServer/src/detail
 -Ilib/esp8266/libraries/ESP8266WiFi/src
 -Ilib/esp8266/libraries/ESP8266WiFi/src/include
+-Ilib/esp8266/libraries/LittleFS/src
+-Ilib/esp8266/libraries/LittleFS/lib/littlefs
 -D__ets__
 -DICACHE_FLASH
 -D_GNU_SOURCE
