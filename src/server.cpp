@@ -2,8 +2,8 @@
 #include <pins_arduino.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
+#include <LittleFS.h>
 
-#include "./webpage.h"
 #include "credentials.h"
 
 static const char ssid[] = WIFI_SSID;
@@ -22,6 +22,14 @@ static auto subnet = SERVER_MASK;
 
 static ESP8266WebServer server{SERVER_PORT};
 
+static void init_fs() {
+  if (!LittleFS.begin()) {
+    Serial.println("LittleFS: Mount failed");
+    HALT();
+  }
+  Serial.println("LittleFS: Initialized");
+}
+
 static void init_wifi() {
 #ifdef WIFI_DEBUG
   WiFi.printDiag(Serial);
@@ -39,11 +47,10 @@ static void init_wifi() {
   Serial.println(WiFi.localIP());
 }
 
-static void init_server(const char* path, void(*callback)()) {
+static void init_server() {
+  server.serveStatic("/", LittleFS, "/");
   server.begin();
-  server.on(path, callback);
-  Serial.print("Server: Initialized -> ");
-  Serial.println(path);
+  Serial.println("Server: Initialized static file serving from LittleFS");
 }
 
 static void blink_led() {
@@ -78,13 +85,9 @@ void setup() {
 
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
+  init_fs();
   init_wifi();
-  init_server("/", +[]() {
-    String response = WEB_SRC;
-    server.send(200, "text/html", response);
-    Serial.print("Server: GET response -> ");
-    Serial.println(response);
-  });
+  init_server();
   blink_led();
 }
 

@@ -1,5 +1,6 @@
 set_project("alarma_tecnica")
 set_version("1.0.0")
+set_policy("check.auto_ignore_flags", false)
 
 set_defaultplat("cross")
 set_targetdir("$(builddir)")
@@ -105,6 +106,8 @@ rule("esp8266.config")
             "lib/esp8266/libraries/ESP8266WebServer/src/detail",
             "lib/esp8266/libraries/ESP8266WiFi/src",
             "lib/esp8266/libraries/ESP8266WiFi/src/include",
+            "lib/esp8266/libraries/LittleFS/src",
+            "lib/esp8266/libraries/LittleFS/lib/littlefs",
             "src",
             path.join(target:targetdir(), "generated")
         )
@@ -139,6 +142,16 @@ target("esp8266_webserver")
     add_files("lib/esp8266/libraries/ESP8266WebServer/src/**.cpp")
 target_end()
 
+target("esp8266_littlefs")
+    set_kind("static")
+    set_targetdir("$(builddir)")
+    add_rules("esp8266.config")
+    add_files(
+        "lib/esp8266/libraries/LittleFS/src/**.c",
+        "lib/esp8266/libraries/LittleFS/src/**.cpp"
+    )
+target_end()
+
 target("server")
     set_kind("binary")
     set_filename("server.elf")
@@ -147,7 +160,7 @@ target("server")
 
     add_files("src/server.cpp")
 
-    add_deps("esp8266_webserver", "esp8266_wifi", "esp8266_core")
+    add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
     add_linkdirs(
         "lib/esp8266/tools/sdk/lib",
@@ -169,9 +182,11 @@ target("server")
         {force = true}
     )
 
+    add_ldflags("-Wl,-Map=" .. path.join(os.projectdir(), "build/server.map"), {force = true})
+
     add_ldflags(
         "-Wl,--start-group",
-        "-lesp8266_webserver", "-lesp8266_wifi", "-lesp8266_core",
+        "-lesp8266_littlefs", "-lesp8266_webserver", "-lesp8266_wifi", "-lesp8266_core",
         "-lhal", "-lphy", "-lpp", "-lnet80211", "-llwip2-536-feat", "-lwpa", "-lcrypto",
         "-lmain", "-lwps", "-lbearssl", "-lespnow", "-lsmartconfig", "-lairkiss", "-lwpa2",
         "-lstdc++", "-lm", "-lc", "-lgcc",
@@ -182,6 +197,7 @@ target("server")
     on_load(function (target)
         local outdir = target:targetdir()
         local gendur = path.join(outdir, "generated")
+        os.mkdir(path.join(os.projectdir(), "build"))
         os.mkdir(outdir)
         os.mkdir(gendur)
 
@@ -336,7 +352,7 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
         local bin_path = path.join(target:targetdir(), "server.bin")
         local eboot_path = path.join(os.projectdir(), "lib/esp8266/bootloaders/eboot/eboot.elf")
 
-        -- Generate .bin image
+        -- 1. Generate firmware .bin image
         print("Creating binary image: %s", bin_path)
         os.execv(python, {
             path.join(tools_dir, "elf2bin.py"),
@@ -349,7 +365,20 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
             "--out", bin_path
         })
 
-        -- Report memory consumption
+        -- 2. Generate LittleFS .bin filesystem image
+        local mklittlefs_tool = path.join(tools_dir, "mklittlefs/mklittlefs")
+        local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
+        local static_dir = path.join(os.projectdir(), "static")
+        print("Creating LittleFS image: %s", fs_bin_path)
+        os.execv(mklittlefs_tool, {
+            "-c", static_dir,
+            "-p", "256",
+            "-b", "8192",
+            "-s", "2072576",
+            fs_bin_path
+        })
+
+        -- 3. Report memory consumption
         os.execv(python, {
             "-X", "utf8",
             path.join(tools_dir, "sizes.py"),
@@ -366,10 +395,11 @@ target_end()
 task("flash")
     set_menu({
         usage = "xmake flash [options]",
-        description = "Flash firmware binary to ESP8266 board",
+        description = "Flash firmware (and optionally filesystem) to ESP8266 board",
         options = {
             {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 115200, "Upload baudrate"}
+            {'b', "baud", "kv", 115200, "Upload baudrate"},
+            {'a', "all",  "k",  false,  "Flash both firmware and LittleFS filesystem"}
         }
     })
 
@@ -385,8 +415,14 @@ task("flash")
         if not os.isfile(bin_path) then
             bin_path = path.join(os.projectdir(), "build/server.bin")
         end
+        local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
+        if not os.isfile(fs_bin_path) then
+            fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
+        end
+
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
+        local flash_all = option.get("all")
 
         local upload_tool = path.join(os.projectdir(), "lib/esp8266/tools/upload.py")
         local args = {upload_tool, "--chip", "esp8266"}
@@ -400,8 +436,90 @@ task("flash")
         table.insert(args, "0x0")
         table.insert(args, bin_path)
 
-        print("Flashing %s to ESP8266 (baud: %s)...", bin_path, baud)
+        if flash_all then
+            if not os.isfile(fs_bin_path) then
+                raise("LittleFS image not found: %s", fs_bin_path)
+            end
+            table.insert(args, "0x200000")
+            table.insert(args, fs_bin_path)
+            print("Flashing firmware (%s @ 0x0) and LittleFS (%s @ 0x200000)...", bin_path, fs_bin_path)
+        else
+            print("Flashing firmware %s @ 0x0 (baud: %s)...", bin_path, baud)
+        end
+
         os.execv("python3", args)
+    end)
+task_end()
+
+task("flash_fs")
+    set_menu({
+        usage = "xmake flash_fs [options]",
+        description = "Flash LittleFS filesystem image to ESP8266 board",
+        options = {
+            {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
+            {'b', "baud", "kv", 115200, "Upload baudrate"}
+        }
+    })
+
+    on_run(function ()
+        import("core.base.option")
+        import("core.project.project")
+
+        -- Ensure target is built
+        os.exec("xmake")
+
+        local target = project.target("server")
+        local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
+        if not os.isfile(fs_bin_path) then
+            fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
+        end
+        if not os.isfile(fs_bin_path) then
+            raise("LittleFS image not found: %s", fs_bin_path)
+        end
+        local port = option.get("port")
+        local baud = tostring(option.get("baud") or 115200)
+
+        local upload_tool = path.join(os.projectdir(), "lib/esp8266/tools/upload.py")
+        local args = {upload_tool, "--chip", "esp8266"}
+        if port and #port > 0 then
+            table.insert(args, "--port")
+            table.insert(args, port)
+        end
+        table.insert(args, "--baud")
+        table.insert(args, baud)
+        table.insert(args, "write_flash")
+        table.insert(args, "0x200000")
+        table.insert(args, fs_bin_path)
+
+        print("Flashing LittleFS %s to ESP8266 @ 0x200000 (baud: %s)...", fs_bin_path, baud)
+        os.execv("python3", args)
+    end)
+task_end()
+
+task("uploadfs")
+    set_menu({
+        usage = "xmake uploadfs [options]",
+        description = "Alias for flash_fs using the current LittleFS partition",
+        options = {
+            {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
+            {'b', "baud", "kv", 115200, "Upload baudrate"}
+        }
+    })
+
+    on_run(function ()
+        import("core.base.option")
+        local args = {"flash_fs"}
+        local port = option.get("port")
+        local baud = option.get("baud")
+        if port and #port > 0 then
+            table.insert(args, "-p")
+            table.insert(args, port)
+        end
+        if baud then
+            table.insert(args, "-b")
+            table.insert(args, tostring(baud))
+        end
+        os.execv("xmake", args)
     end)
 task_end()
 
