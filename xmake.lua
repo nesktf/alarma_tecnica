@@ -1,6 +1,5 @@
 set_project("alarma_tecnica")
 set_version("1.0.0")
-set_policy("check.auto_ignore_flags", false)
 
 set_defaultplat("cross")
 set_targetdir("$(builddir)")
@@ -159,6 +158,7 @@ target("server")
     add_rules("esp8266.config")
 
     add_files("src/server.cpp")
+    add_files("src/sensor.cpp")
 
     add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
@@ -181,8 +181,6 @@ target("server")
         "-Tlocal.eagle.flash.ld",
         {force = true}
     )
-
-    add_ldflags("-Wl,-Map=" .. path.join(os.projectdir(), "build/server.map"), {force = true})
 
     add_ldflags(
         "-Wl,--start-group",
@@ -437,9 +435,7 @@ task("flash")
         table.insert(args, bin_path)
 
         if flash_all then
-            if not os.isfile(fs_bin_path) then
-                raise("LittleFS image not found: %s", fs_bin_path)
-            end
+            table.insert(args, "write_flash")
             table.insert(args, "0x200000")
             table.insert(args, fs_bin_path)
             print("Flashing firmware (%s @ 0x0) and LittleFS (%s @ 0x200000)...", bin_path, fs_bin_path)
@@ -473,9 +469,6 @@ task("flash_fs")
         if not os.isfile(fs_bin_path) then
             fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
         end
-        if not os.isfile(fs_bin_path) then
-            raise("LittleFS image not found: %s", fs_bin_path)
-        end
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
 
@@ -493,33 +486,6 @@ task("flash_fs")
 
         print("Flashing LittleFS %s to ESP8266 @ 0x200000 (baud: %s)...", fs_bin_path, baud)
         os.execv("python3", args)
-    end)
-task_end()
-
-task("uploadfs")
-    set_menu({
-        usage = "xmake uploadfs [options]",
-        description = "Alias for flash_fs using the current LittleFS partition",
-        options = {
-            {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 115200, "Upload baudrate"}
-        }
-    })
-
-    on_run(function ()
-        import("core.base.option")
-        local args = {"flash_fs"}
-        local port = option.get("port")
-        local baud = option.get("baud")
-        if port and #port > 0 then
-            table.insert(args, "-p")
-            table.insert(args, port)
-        end
-        if baud then
-            table.insert(args, "-b")
-            table.insert(args, tostring(baud))
-        end
-        os.execv("xmake", args)
     end)
 task_end()
 
