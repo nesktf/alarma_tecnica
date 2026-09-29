@@ -1,43 +1,125 @@
-<!DOCTYPE html>
-<html lang="en-US">
+<!doctype html>
+<html lang="es">
   <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Alarma</title>
-    <link rel="icon" type="image/x-icon" href="/favicon.ico">
-    <link rel="stylesheet" href="/css/pico.min.css"/>
+    <title>Alarma técnica · NodeMCU</title>
+    <link rel="stylesheet" href="/css/pico.min.css">
     <link rel="stylesheet" href="/css/style.css">
   </head>
-
   <body>
     <main class="container">
-      <article>
-        <h3 style="text-align: center">Notificaciones</h3>
-      </article>
-      <div id="gridContent">
-      </div>
-    </main>
-  </body>
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">REDES II · MONITOREO</p>
+          <h1>Alarma técnica</h1>
+          <p class="subtitle">Vista de funcionamiento · NodeMCU ESP8266</p>
+        </div>
+        <div id="connectionBadge" class="badge pending" role="status">Conectando…</div>
+      </header>
 
-  <template id="templGridRow">
-    <div class="grid">
-      {{#elems}}
-      <article class="grid-item">
-        <header>
-          <h5 style="text-align: center">{{title}}</h5>
-        </header>
-        <section class="grid-content">
-          <p>Estado actual</p>
-          <div class="light-indicator" style="background-color: {{statusColor}}">
-            {{statusStr}}
+      <aside id="simulationNotice" class="simulation-notice" hidden>
+        Simulación local: las entradas del sensor y los periféricos son ficticios; no se está ejecutando el firmware Xtensa.
+      </aside>
+
+      <section class="dashboard" aria-label="Estado del dispositivo">
+        <article class="panel board-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">DISPOSITIVO</p>
+              <h2>NodeMCU ESP8266</h2>
+            </div>
+            <span id="bootState" class="state-chip">Esperando estado</span>
+          </header>
+          <div class="board-layout">
+            <div class="board" role="img" aria-label="Diagrama simplificado de una placa NodeMCU ESP8266">
+              <div class="board-usb">USB</div>
+              <div class="board-chip">
+                <span>ESP</span>
+                <strong>8266</strong>
+                <small>ESP-12E</small>
+              </div>
+              <div class="board-antenna"></div>
+              <div class="board-label">NodeMCU</div>
+              <div class="board-led"><i id="ledIndicator"></i> LED</div>
+              <div class="board-pins left-pins">
+                <span>D0</span><span>D1</span><span>D2</span><span>D3</span><span>D4</span>
+                <span class="sensor-pin">D5 <b id="echoPin">Echo</b></span><span class="sensor-pin">D6 <b id="triggerPin">Trig</b></span>
+                <span>D7</span><span>D8</span>
+              </div>
+              <div class="board-pins right-pins">
+                <span>3V3</span><span>GND</span><span>RST</span><span>A0</span><span>RX</span>
+                <span>TX</span><span>GND</span><span>VIN</span><span>EN</span>
+              </div>
+            </div>
+            <div class="board-facts">
+              <div><span>CPU</span><strong id="cpuLimit">—</strong></div>
+              <div><span>Flash</span><strong id="flashLimit">—</strong></div>
+              <div><span>GPIO Trigger</span><strong id="triggerGpio">—</strong></div>
+              <div><span>GPIO Echo</span><strong id="echoGpio">—</strong></div>
+              <p class="hint">Límites de referencia de la placa. El uso de memoria solo se valida compilando para Xtensa.</p>
+            </div>
           </div>
-        </section>
-      </article>
-      {{/elems}}
-    </div>
-  </template>
+        </article>
 
-  <script src="/js/mustache.min.js"></script>
-  <script src="/js/main.js"></script>
+        <article class="panel sensor-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">SENSOR ULTRASÓNICO</p>
+              <h2>Distancia medida</h2>
+            </div>
+            <span id="sampleAge" class="muted">Sin lectura</span>
+          </header>
+          <div class="reading">
+            <strong id="distanceValue">—</strong><span>cm</span>
+          </div>
+          <div class="meter" role="meter" aria-label="Distancia medida" aria-valuemin="0" aria-valuemax="400" aria-valuenow="0">
+            <i id="distanceMeter"></i>
+          </div>
+          <p id="sensorMessage" class="sensor-message">Esperando primera medición.</p>
+          <p class="hint">Muestreo cada 1 s · timeout Echo: 30 ms. Esta lectura aún no define un umbral de alarma.</p>
+        </article>
+
+        <article class="panel status-panel">
+          <p class="eyebrow">CONECTIVIDAD</p>
+          <div class="status-row"><span>Wi-Fi</span><strong id="wifiState">—</strong></div>
+          <div class="status-row"><span>LittleFS</span><strong id="filesystemState">—</strong></div>
+          <div class="status-row"><span>Firmware</span><strong id="firmwareState">—</strong></div>
+          <div class="status-row"><span>Tiempo activo</span><strong id="uptime">—</strong></div>
+        </article>
+
+        <section id="simulatorControls" class="panel controls-panel" hidden>
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">BANCO DE PRUEBAS</p>
+              <h2>Escenarios simulados</h2>
+            </div>
+            <button id="rebootButton" class="secondary outline" type="button">Reiniciar</button>
+          </header>
+          <label for="distanceControl">Distancia del objeto <output id="distanceOutput">48 cm</output></label>
+          <input id="distanceControl" type="range" min="2" max="400" step="1" value="48">
+          <div class="control-grid">
+            <label class="toggle"><input id="echoControl" type="checkbox" checked> Echo responde</label>
+            <label class="toggle"><input id="wifiControl" type="checkbox" checked> Wi-Fi disponible</label>
+            <label class="toggle"><input id="filesystemControl" type="checkbox" checked> LittleFS monta</label>
+          </div>
+          <p class="hint">Quitar Wi-Fi o LittleFS permite observar los fallos de arranque que hoy detienen el firmware.</p>
+          <p id="controlError" class="error-message" role="alert" hidden></p>
+        </section>
+
+        <article id="eventPanel" class="panel event-panel" hidden>
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">SERIAL SIMULADO</p>
+              <h2>Eventos recientes</h2>
+            </div>
+          </header>
+          <ol id="eventLog" class="event-log"></ol>
+        </article>
+      </section>
+      <footer class="footer-note">La interfaz consulta <code>/api/state</code>. La simulación ayuda a probar estados y flujo web; no sustituye la compilación ni la validación eléctrica en la placa.</footer>
+    </main>
+    <script src="/js/main.js"></script>
+  </body>
 </html>

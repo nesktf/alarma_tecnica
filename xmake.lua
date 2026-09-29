@@ -386,6 +386,55 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
             "--path", bin_dir,
             "--mmu", "-DMMU_IRAM_SIZE=0x8000 -DMMU_ICACHE_SIZE=0x8000"
         })
+
+        -- Stop before the reserved EEPROM and RF calibration sectors.
+        local fs_offset = 0x200000
+        local image_size = 0x3FA000
+
+        local function read_binary(file_path)
+            local file, open_err = io.open(file_path, "rb")
+            if not file then
+                raise("Failed to open image %s: %s", file_path, open_err)
+            end
+            local data, read_err = file:read("*a")
+            local closed, close_err = file:close()
+            if not data then
+                raise("Failed to read image %s: %s", file_path, read_err)
+            end
+            if not closed then
+                raise("Failed to close image %s: %s", file_path, close_err)
+            end
+            return data
+        end
+
+        local app_image = read_binary(bin_path)
+        local fs_image = read_binary(fs_bin_path)
+        if #app_image > fs_offset then
+            raise("Firmware image is too large for its flash partition: %d bytes", #app_image)
+        end
+        if #fs_image > image_size - fs_offset then
+            raise("LittleFS image is too large for its flash partition: %d bytes", #fs_image)
+        end
+
+        local merged_bin_path = path.join(target:targetdir(), "firmware.bin")
+        local merged_image = app_image
+            .. string.rep("\xff", fs_offset - #app_image)
+            .. fs_image
+            .. string.rep("\xff", image_size - fs_offset - #fs_image)
+        local merged_file, open_err = io.open(merged_bin_path, "wb")
+        if not merged_file then
+            raise("Failed to create combined firmware image %s: %s", merged_bin_path, open_err)
+        end
+        merged_file:write(merged_image)
+        local closed, close_err = merged_file:close()
+        if not closed then
+            raise("Failed to close combined firmware image %s: %s", merged_bin_path, close_err)
+        end
+        local written_size = os.filesize(merged_bin_path)
+        if written_size ~= #merged_image then
+            raise("Combined firmware image has an unexpected size: %s bytes (expected %d)", tostring(written_size), #merged_image)
+        end
+        print("Created combined firmware image: %s (%d bytes)", merged_bin_path, #merged_image)
     end)
 target_end()
 
@@ -395,11 +444,10 @@ target_end()
 task("flash")
     set_menu({
         usage = "xmake flash [options]",
-        description = "Flash firmware (and optionally filesystem) to ESP8266 board",
+        description = "Flash combined firmware and LittleFS image to ESP8266 board",
         options = {
             {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 115200, "Upload baudrate"},
-            {'a', "all",  "k",  false,  "Flash both firmware and LittleFS filesystem"}
+            {'b', "baud", "kv", 115200, "Upload baudrate"}
         }
     })
 
@@ -411,18 +459,16 @@ task("flash")
         os.exec("xmake")
 
         local target = project.target("server")
-        local bin_path = path.join(target:targetdir(), "server.bin")
+        local bin_path = path.join(target:targetdir(), "firmware.bin")
         if not os.isfile(bin_path) then
-            bin_path = path.join(os.projectdir(), "build/server.bin")
+            bin_path = path.join(os.projectdir(), "build/firmware.bin")
         end
-        local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
-        if not os.isfile(fs_bin_path) then
-            fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
+        if not os.isfile(bin_path) then
+            raise("Combined firmware image not found: %s", bin_path)
         end
 
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
-        local flash_all = option.get("all")
 
         local upload_tool = path.join(os.projectdir(), "lib/esp8266/tools/upload.py")
         local args = {upload_tool, "--chip", "esp8266"}
@@ -435,17 +481,7 @@ task("flash")
         table.insert(args, "write_flash")
         table.insert(args, "0x0")
         table.insert(args, bin_path)
-
-        if flash_all then
-            if not os.isfile(fs_bin_path) then
-                raise("LittleFS image not found: %s", fs_bin_path)
-            end
-            table.insert(args, "0x200000")
-            table.insert(args, fs_bin_path)
-            print("Flashing firmware (%s @ 0x0) and LittleFS (%s @ 0x200000)...", bin_path, fs_bin_path)
-        else
-            print("Flashing firmware %s @ 0x0 (baud: %s)...", bin_path, baud)
-        end
+        print("Flashing combined firmware and LittleFS %s @ 0x0 (baud: %s)...", bin_path, baud)
 
         os.execv("python3", args)
     end)

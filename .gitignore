@@ -4,3 +4,5 @@
 src/credentials.h
 build/
 compile_commands.json
+__pycache__/
+*.py[cod]
