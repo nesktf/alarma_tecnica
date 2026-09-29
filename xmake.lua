@@ -1,6 +1,5 @@
 set_project("alarma_tecnica")
 set_version("1.0.0")
-set_policy("check.auto_ignore_flags", false)
 
 set_defaultplat("cross")
 set_targetdir("$(builddir)")
@@ -159,6 +158,7 @@ target("server")
     add_rules("esp8266.config")
 
     add_files("src/server.cpp")
+    add_files("src/sensor.cpp")
 
     add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
@@ -182,8 +182,6 @@ target("server")
         {force = true}
     )
 
-    add_ldflags("-Wl,-Map=" .. path.join(os.projectdir(), "build/server.map"), {force = true})
-
     add_ldflags(
         "-Wl,--start-group",
         "-lesp8266_littlefs", "-lesp8266_webserver", "-lesp8266_wifi", "-lesp8266_core",
@@ -197,7 +195,6 @@ target("server")
     on_load(function (target)
         local outdir = target:targetdir()
         local gendur = path.join(outdir, "generated")
-        os.mkdir(path.join(os.projectdir(), "build"))
         os.mkdir(outdir)
         os.mkdir(gendur)
 
@@ -244,51 +241,37 @@ target("server")
             if #parts ~= 4 then
                 raise(string.format("Invalid IP format in %s: '%s' (expected 4 octets)", var_name, ip_str))
             end
-            return table.concat(parts, ", ")
+            return string.format("IPAddress(%s)", table.concat(parts, ", "))
         end
 
         local raw_ip = env_vars.SERVER_IP or os.getenv("SERVER_IP")
         local raw_gw = env_vars.SERVER_GATEWAY or os.getenv("SERVER_GATEWAY")
         local raw_mask = env_vars.SERVER_MASK or os.getenv("SERVER_MASK")
 
-        local ip_formatted = parse_ip(raw_ip, "SERVER_IP") or "192, 168, 0, 53"
-        local gw_formatted = parse_ip(raw_gw, "SERVER_GATEWAY") or "192, 168, 0, 1"
-        local mask_formatted = parse_ip(raw_mask, "SERVER_MASK") or "255, 255, 255, 0"
+        local ip_formatted = parse_ip(raw_ip, "SERVER_IP") or "IPAddress(192, 168, 0, 53)"
+        local gw_formatted = parse_ip(raw_gw, "SERVER_GATEWAY") or "IPAddress(192, 168, 0, 1)"
+        local mask_formatted = parse_ip(raw_mask, "SERVER_MASK") or "IPAddress(255, 255, 255, 0)"
 
         local header_content = string.format([[#ifndef ENV_H
 #define ENV_H
 
 #define WIFI_SSID %q
 #define WIFI_PSWD %q
-#ifndef WIFI_PASS
-#define WIFI_PASS WIFI_PSWD
-#endif
-
-#ifndef SERVER_IP
-#define SERVER_IP IPAddress(192, 168, 0, 53)
-#else
-#define SERVER_IP IPAddress(%s)
-#endif
-#ifndef SERVER_GATEWAY
-#define SERVER_GATEWAY IPAddress(192, 168, 0, 1)
-#else
-#define SERVER_GATEWAY IPAddress(%s)
-#endif
-#ifndef SERVER_MASK
-#define SERVER_MASK IPAddress(255, 255, 255, 0)
-#else
-#define SERVER_MASK IPAddress(%s)
-#endif
+#define SERVER_IP %s
+#define SERVER_GATEWAY %s
+#define SERVER_MASK %s
 
 #endif // ENV_H
 ]], wifi_ssid, wifi_pass, ip_formatted, gw_formatted, mask_formatted)
 
-        local outdirs = {gendur, path.join(os.projectdir(), "src")}
-        for _, dir in ipairs(outdirs) do
-            os.mkdir(dir)
-            local target_file = path.join(dir, "credentials.h")
-            io.writefile(target_file, header_content)
-        end
+        --local outdirs = {gendur, path.join(os.projectdir(), "src")}
+        --for _, dir in ipairs(outdirs) do
+        --os.mkdir(gendur)
+        local target_file = path.join(gendur, "credentials.h")
+        io.writefile(target_file, header_content)
+            --io.writefile(target_file, header_content)
+        --end
+
 
         -- 2. Generate buildinfo.h & buildinfo.cpp
         local buildinfo_h = path.join(gendur, "buildinfo.h")
@@ -386,55 +369,6 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
             "--path", bin_dir,
             "--mmu", "-DMMU_IRAM_SIZE=0x8000 -DMMU_ICACHE_SIZE=0x8000"
         })
-
-        -- Stop before the reserved EEPROM and RF calibration sectors.
-        local fs_offset = 0x200000
-        local image_size = 0x3FA000
-
-        local function read_binary(file_path)
-            local file, open_err = io.open(file_path, "rb")
-            if not file then
-                raise("Failed to open image %s: %s", file_path, open_err)
-            end
-            local data, read_err = file:read("*a")
-            local closed, close_err = file:close()
-            if not data then
-                raise("Failed to read image %s: %s", file_path, read_err)
-            end
-            if not closed then
-                raise("Failed to close image %s: %s", file_path, close_err)
-            end
-            return data
-        end
-
-        local app_image = read_binary(bin_path)
-        local fs_image = read_binary(fs_bin_path)
-        if #app_image > fs_offset then
-            raise("Firmware image is too large for its flash partition: %d bytes", #app_image)
-        end
-        if #fs_image > image_size - fs_offset then
-            raise("LittleFS image is too large for its flash partition: %d bytes", #fs_image)
-        end
-
-        local merged_bin_path = path.join(target:targetdir(), "firmware.bin")
-        local merged_image = app_image
-            .. string.rep("\xff", fs_offset - #app_image)
-            .. fs_image
-            .. string.rep("\xff", image_size - fs_offset - #fs_image)
-        local merged_file, open_err = io.open(merged_bin_path, "wb")
-        if not merged_file then
-            raise("Failed to create combined firmware image %s: %s", merged_bin_path, open_err)
-        end
-        merged_file:write(merged_image)
-        local closed, close_err = merged_file:close()
-        if not closed then
-            raise("Failed to close combined firmware image %s: %s", merged_bin_path, close_err)
-        end
-        local written_size = os.filesize(merged_bin_path)
-        if written_size ~= #merged_image then
-            raise("Combined firmware image has an unexpected size: %s bytes (expected %d)", tostring(written_size), #merged_image)
-        end
-        print("Created combined firmware image: %s (%d bytes)", merged_bin_path, #merged_image)
     end)
 target_end()
 
@@ -444,10 +378,11 @@ target_end()
 task("flash")
     set_menu({
         usage = "xmake flash [options]",
-        description = "Flash combined firmware and LittleFS image to ESP8266 board",
+        description = "Flash firmware (and optionally filesystem) to ESP8266 board",
         options = {
             {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 115200, "Upload baudrate"}
+            {'b', "baud", "kv", 115200, "Upload baudrate"},
+            {'a', "all",  "k",  false,  "Flash both firmware and LittleFS filesystem"}
         }
     })
 
@@ -459,16 +394,18 @@ task("flash")
         os.exec("xmake")
 
         local target = project.target("server")
-        local bin_path = path.join(target:targetdir(), "firmware.bin")
+        local bin_path = path.join(target:targetdir(), "server.bin")
         if not os.isfile(bin_path) then
-            bin_path = path.join(os.projectdir(), "build/firmware.bin")
+            bin_path = path.join(os.projectdir(), "build/server.bin")
         end
-        if not os.isfile(bin_path) then
-            raise("Combined firmware image not found: %s", bin_path)
+        local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
+        if not os.isfile(fs_bin_path) then
+            fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
         end
 
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
+        local flash_all = option.get("all")
 
         local upload_tool = path.join(os.projectdir(), "lib/esp8266/tools/upload.py")
         local args = {upload_tool, "--chip", "esp8266"}
@@ -481,7 +418,15 @@ task("flash")
         table.insert(args, "write_flash")
         table.insert(args, "0x0")
         table.insert(args, bin_path)
-        print("Flashing combined firmware and LittleFS %s @ 0x0 (baud: %s)...", bin_path, baud)
+
+        if flash_all then
+            table.insert(args, "write_flash")
+            table.insert(args, "0x200000")
+            table.insert(args, fs_bin_path)
+            print("Flashing firmware (%s @ 0x0) and LittleFS (%s @ 0x200000)...", bin_path, fs_bin_path)
+        else
+            print("Flashing firmware %s @ 0x0 (baud: %s)...", bin_path, baud)
+        end
 
         os.execv("python3", args)
     end)
@@ -509,9 +454,6 @@ task("flash_fs")
         if not os.isfile(fs_bin_path) then
             fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
         end
-        if not os.isfile(fs_bin_path) then
-            raise("LittleFS image not found: %s", fs_bin_path)
-        end
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
 
@@ -529,33 +471,6 @@ task("flash_fs")
 
         print("Flashing LittleFS %s to ESP8266 @ 0x200000 (baud: %s)...", fs_bin_path, baud)
         os.execv("python3", args)
-    end)
-task_end()
-
-task("uploadfs")
-    set_menu({
-        usage = "xmake uploadfs [options]",
-        description = "Alias for flash_fs using the current LittleFS partition",
-        options = {
-            {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 115200, "Upload baudrate"}
-        }
-    })
-
-    on_run(function ()
-        import("core.base.option")
-        local args = {"flash_fs"}
-        local port = option.get("port")
-        local baud = option.get("baud")
-        if port and #port > 0 then
-            table.insert(args, "-p")
-            table.insert(args, port)
-        end
-        if baud then
-            table.insert(args, "-b")
-            table.insert(args, tostring(baud))
-        end
-        os.execv("xmake", args)
     end)
 task_end()
 
