@@ -38,9 +38,10 @@ xmake server
 
 - El simulador escucha por defecto solo en `127.0.0.1`.
 - La interfaz y el estado deben mantenerse compatibles entre firmware y simulador.
+- El simulador puede añadir `alarm_system` como extensión local para probar la interfaz; no representa una política de alarma aprobada ni una función implementada en el firmware.
 - El sensor ultrasónico usa la variante NodeMCU; la asignación actual documentada es TRIG D6/GPIO12 y ECHO D5/GPIO14.
 - Si se usa un HC-SR04 alimentado a 5 V, la línea Echo debe adaptarse a 3,3 V antes de conectarla al ESP8266.
-- La lógica de alarma aún no está definida; la documentación del vault y del backlog diferencian claramente medición de distancia de detección de movimiento.
+- La lógica de alarma del producto aún no está definida; la simulación local de PIR, estados centrales y bus es ilustrativa y no deriva movimiento de la distancia HC-SR04.
 
 ## Documentación del proyecto
 

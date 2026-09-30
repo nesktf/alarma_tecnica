@@ -57,6 +57,7 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
             "routes": [
                 "/",
                 "/api/state",
+                "/api/controls",
                 "/api/proxy?url=http://192.168.0.53/api/state",
                 "/css/pico.min.css",
                 "/css/style.css",

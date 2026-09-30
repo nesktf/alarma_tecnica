@@ -30,7 +30,7 @@ Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya
 
 ## Prioridad 0 — Definir el comportamiento del sistema
 
-- [ ] **Definir el requisito de alarma:** qué evento físico detecta el sensor y qué significan “Normal”, “Movimiento detectado” y “Desconectado”.
+- [ ] **Definir el requisito físico de alarma:** qué evento detecta el sensor y qué significan “Normal”, “Movimiento detectado” y “Desconectado”. El modo local ahora ofrece escenarios ilustrativos para probar la interfaz, pero no fija esta política de producto.
 - [ ] **Definir el umbral y las unidades** para activar y limpiar alarma. No asumir que una distancia corta equivale a movimiento: un HC-SR04 mide distancia, no movimiento por sí solo.
 - [ ] **Definir histéresis/filtrado:** cuántas muestras activan/desactivan, y qué hacer con ruido, lecturas fuera del rango del sensor o timeout.
 - [ ] **Definir pérdida de sensor:** retener estado, pasar a “Sin lectura” o disparar una alarma técnica. Evitar convertir el timeout en `0 cm`.
@@ -39,7 +39,7 @@ Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya
 
 ## Prioridad 1 — Completar detección y estados
 
-- [ ] Implementar una política de detección pura y pequeña con los parámetros acordados; evitar asignación dinámica y dependencias pesadas en firmware.
+- [ ] Implementar una política de detección pura y pequeña con los parámetros acordados; evitar asignación dinámica y dependencias pesadas en firmware. Los controles de alarma/PIR/V_bus del simulador son solo una extensión de demostración y no están sincronizados con el firmware.
 - [ ] Extender el estado del dispositivo con la clasificación y el motivo (`normal`, `alarm`, `no_reading`, `sensor_error`, según contrato aprobado).
 - [ ] Mostrar en el dashboard un estado visual inequívoco y accesible; distinguir alarma física de fallas del sensor/red/archivos.
 - [ ] Añadir escenarios al simulador para umbral, histéresis, muestras ruidosas, timeout intermitente y recuperación.

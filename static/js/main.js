@@ -211,6 +211,7 @@ const el = {
   eventLog: byId("eventLog"),
 
   // Tab 4: Banco de Pruebas
+  tabTestsButton: byId("tabBtnTests"),
   btnSetDisarmed: byId("btnSetDisarmed"),
   btnSetArming: byId("btnSetArming"),
   btnSetArmed: byId("btnSetArmed"),
@@ -760,6 +761,13 @@ async function fetchState() {
 
 function handleStateUpdate(state) {
   latestState = state;
+  const controlsAvailable = state.simulator === true;
+  el.tabTestsButton.hidden = !controlsAvailable;
+  el.inspectorSimActions.hidden = !controlsAvailable;
+
+  if (!controlsAvailable && el.tabTestsButton.classList.contains("active")) {
+    byId("tabBtnBoard").click();
+  }
 
   // 1. Topbar y Telemetría
   renderTrafficLightAndTelemetry(state);

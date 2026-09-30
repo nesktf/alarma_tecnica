@@ -74,6 +74,83 @@ class DeviceModelTests(unittest.TestCase):
         self.device.apply_controls({"reboot": True})
         self.assertEqual(self.device.snapshot()["uptime_ms"], 0)
 
+    def test_simulates_alarm_states_and_sector_controls(self):
+        self.device.apply_controls({"alarm_state": "ARMED"})
+        self.device.apply_controls({"toggle_motion": 2})
+        state = self.device.snapshot()["alarm_system"]
+        self.assertEqual(state["state"], "ALARM")
+        self.assertEqual(state["sectors"][1]["status"], "alarm")
+
+        self.device.apply_controls({"alarm_state": "DISARMED"})
+        self.device.apply_controls({"toggle_motion": 2})
+        self.device.apply_controls({"toggle_no_response": 2})
+        sector = self.device.snapshot()["alarm_system"]["sectors"][1]
+        self.assertEqual(sector["status"], "no_response")
+        self.assertTrue(sector["no_response"])
+
+    def test_alarm_arming_completes_after_sixty_seconds(self):
+        self.device.apply_controls({"alarm_state": "ARMING"})
+        self.assertEqual(self.device.snapshot()["alarm_system"]["state"], "ARMING")
+        self.clock.advance_ms(59999)
+        self.assertEqual(self.device.snapshot()["alarm_system"]["state"], "ARMING")
+        self.clock.advance_ms(1)
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "ARMED")
+        self.assertEqual(alarm["arming_remaining_s"], 0)
+
+    def test_alarm_arming_triggers_if_motion_is_active_at_completion(self):
+        self.device.apply_controls({"toggle_motion": 3, "alarm_state": "ARMING"})
+        self.clock.advance_ms(60000)
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "ALARM")
+        self.assertEqual(alarm["sectors"][2]["status"], "alarm")
+
+    def test_emergency_and_bus_voltage_controls_are_reflected(self):
+        self.device.apply_controls({"trigger_emergency": 1, "v_bus": 11.5})
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "ALARM")
+        self.assertEqual(alarm["sectors"][0]["status"], "alarm")
+        self.assertEqual(alarm["v_bus_status"], "warning")
+
+        self.device.apply_controls({"v_bus": 10.5})
+        self.assertEqual(self.device.snapshot()["alarm_system"]["v_bus_status"], "alarm")
+
+    def test_reset_all_restores_hardware_and_alarm_controls(self):
+        self.device.apply_controls({
+            "distance_cm": 22,
+            "wifi_available": False,
+            "alarm_state": "ALARM",
+            "v_bus": 10.5,
+            "toggle_motion": 4,
+        })
+        self.device.apply_controls({"reset_all": True})
+        state = self.device.snapshot()
+        self.assertEqual(state["state"], "running")
+        self.assertEqual(state["uptime_ms"], 0)
+        self.assertEqual(state["controls"]["distance_cm"], 48)
+        self.assertEqual(state["alarm_system"]["state"], "DISARMED")
+        self.assertEqual(state["alarm_system"]["v_bus"], 12.4)
+        self.assertFalse(state["alarm_system"]["active_areas"])
+
+    def test_invalid_alarm_control_does_not_partially_update(self):
+        with self.assertRaises(ControlError):
+            self.device.apply_controls({"v_bus": 10.5, "toggle_motion": 9})
+        state = self.device.snapshot()["alarm_system"]
+        self.assertEqual(state["v_bus"], 12.4)
+        self.assertFalse(state["active_areas"])
+
+    def test_invalid_alarm_types_and_unavailable_sector_actions_are_rejected(self):
+        invalid_controls = (
+            {"alarm_state": []},
+            {"alarm_state": None},
+            {"v_bus": 31},
+            {"trigger_emergency": 2},
+            {"toggle_no_response": 1},
+        )
+        for controls in invalid_controls:
+            with self.subTest(controls=controls), self.assertRaises(ControlError):
+                self.device.apply_controls(controls)
+
 
 class SimulatorHttpTests(unittest.TestCase):
     @classmethod
@@ -131,12 +208,35 @@ class SimulatorHttpTests(unittest.TestCase):
         self.assertEqual(state["state"], "waiting_wifi")
         self.assertFalse(state["wifi"])
 
+    def test_control_api_accepts_alarm_and_bus_controls(self):
+        request = Request(
+            self.base_url + "/api/controls",
+            data=b'{"alarm_state":"ARMED"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            state = json.load(response)
+        self.assertEqual(state["alarm_system"]["state"], "ARMED")
+
+        request = Request(
+            self.base_url + "/api/controls",
+            data=b'{"toggle_motion":2}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            state = json.load(response)
+        self.assertEqual(state["alarm_system"]["state"], "ALARM")
+        self.assertEqual(state["alarm_system"]["sectors"][1]["status"], "alarm")
+
     def test_server_activity_is_visible_in_state_payload(self):
        with urlopen(self.base_url + "/api/state") as response:
            state = json.load(response)
        self.assertEqual(state["server"]["status"], "running")
        self.assertEqual(state["server"]["last_request"], "/api/state")
        self.assertIn("/api/state", state["server"]["routes"])
+       self.assertIn("/api/controls", state["server"]["routes"])
        self.assertIn("bind_url", state["server"])
        self.assertIn("virtual_url", state["server"])
 

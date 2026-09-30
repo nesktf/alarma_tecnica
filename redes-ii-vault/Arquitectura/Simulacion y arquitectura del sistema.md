@@ -18,9 +18,9 @@ La solución implementada permite observar el mismo dashboard con el ESP8266 o c
 La solución implementada permite observar el mismo dashboard con el ESP8266 o con un modelo local:
 
 1. El firmware del ESP8266 mide el sensor y publica su estado por HTTP.
-2. El simulador de PC usa Python para presentar estados controlables de sensor, Wi-Fi y LittleFS.
+2. El simulador de PC usa Python para presentar estados controlables de sensor, Wi-Fi, LittleFS y escenarios locales de interfaz de alarma.
 
-Ambos entornos comparten la interfaz y el contrato JSON del dashboard, pero **no ejecutan el mismo código de aplicación**: el simulador no ejecuta el ELF ni mide tiempos, periféricos o uso de memoria del ESP8266. El build cruzado y sus límites de RAM/IRAM/flash siguen siendo validaciones obligatorias.
+Ambos entornos comparten la interfaz y el contrato JSON base del dashboard, pero **no ejecutan el mismo código de aplicación**: el simulador no ejecuta el ELF ni mide tiempos, periféricos o uso de memoria del ESP8266. El simulador agrega `alarm_system` para probar la interfaz; esa extensión no forma parte de la respuesta del firmware y no define la política física de alarma. El build cruzado y sus límites de RAM/IRAM/flash siguen siendo validaciones obligatorias.
 
 El backlog priorizado y el criterio de terminado están en [[funcionalidades-pendientes]]. No conviene presentar una placa distinta como simulación exacta del ESP8266: la meta de la herramienta local es previsualizar el comportamiento observable del dashboard y algunos escenarios del dispositivo.
 
@@ -70,7 +70,7 @@ simulator/server.py        # HTTP local: UI, API de estado y controles de prueba
 tests/test_simulator.py    # pruebas de estados, muestreo y API
 ```
 
-`static/` sirve la misma interfaz en la placa y en el simulador. El firmware expone `GET /api/state` con uptime y la lectura más reciente; el simulador sirve el mismo dashboard, crea estado sintético cada segundo y añade `POST /api/controls` para variar distancia, Echo, Wi-Fi y montaje de LittleFS. Las actualizaciones del modelo son validadas antes de aplicarse, y el acceso concurrente está protegido. El modelo acepta un reloj inyectado para que la cadencia y los errores puedan probarse determinísticamente. No hay dependencias Python externas.
+`static/` sirve la misma interfaz en la placa y en el simulador. El firmware expone `GET /api/state` con uptime y la lectura más reciente; el simulador sirve el mismo dashboard, crea estado sintético cada segundo y añade `POST /api/controls` para variar distancia, Echo, Wi-Fi, montaje de LittleFS y los controles locales del banco de pruebas. La respuesta local puede incluir `alarm_system`, extensión que el firmware no implementa. Las actualizaciones del modelo son validadas antes de aplicarse, y el acceso concurrente está protegido. El modelo acepta un reloj inyectado para que la cadencia y los errores puedan probarse determinísticamente. No hay dependencias Python externas.
 
 Arranque local desde la raíz:
 
@@ -94,9 +94,13 @@ Abrir `http://127.0.0.1:8080` (o el puerto elegido). La UI muestra una placa esq
 - **Wi-Fi disponible:** desactivar mueve el estado a `waiting_wifi` y detiene nuevas muestras.
 - **LittleFS monta:** desactivar mueve el estado a `halted_filesystem`, imitando el `HALT()` de arranque actual.
 - **Reiniciar:** restablece uptime y temporizador de muestra. Las posiciones de controles se conservan.
-- **Eventos:** historial limitado al más reciente de 30 eventos.
+- **Máquina de estados local:** desarmar, iniciar armado por 60 s, forzar armado o disparar la alarma general. Movimiento PIR con el sistema armado y pulsador de emergencia activan la alarma simulada.
+- **Sectores y bus RS485:** se puede alternar movimiento en los sectores activos y pérdida/restauración de respuesta en nodos remotos. La emergencia solo está disponible en los sectores que la interfaz identifica con pulsador.
+- **Tensión V_bus:** 0–30 V; debajo de 11.8 V marca alerta y debajo de 11.0 V marca estado crítico en la telemetría.
+- **Reset total:** restablece la placa, los sectores, el estado central y la tensión a sus valores iniciales.
+- **Eventos:** historial serial limitado a 30 registros; el registro local de alarma conserva hasta 50.
 
-La simulación de Wi-Fi/LittleFS representa escenarios de **fallo al arranque**, no una caída de red real después de conectar. La distancia puede cambiarse desde la pantalla; el límite sirve como rango nominal del HC-SR04, no implica alarma.
+Los escenarios de alarma, sector y V_bus son extensiones locales de demostración deducidas de las etiquetas y controles de la interfaz. No son una política aprobada para el sistema físico ni implican que la distancia HC-SR04 detecte movimiento. La simulación de Wi-Fi/LittleFS representa escenarios de **fallo al arranque**, no una caída de red real después de conectar. La distancia puede cambiarse desde la pantalla; el límite sirve como rango nominal del HC-SR04, no implica alarma.
 
 ### API de desarrollo
 
@@ -112,7 +116,7 @@ curl -s -X POST http://127.0.0.1:8080/api/controls \
   -d '{"echo_available": false}'
 ```
 
-Los controles admitidos son `distance_cm` (finito, 2–400), `echo_available`, `wifi_available`, `filesystem_mounts` (booleanos) y `reboot` (booleano). JSON inválido, propiedades desconocidas y valores fuera de rango devuelven HTTP 400; cuerpos vacíos o mayores a 1024 bytes se rechazan. Los controles existen únicamente en el simulador; el firmware ofrece solo lectura.
+Los controles admitidos son `distance_cm` (finito, 2–400), `echo_available`, `wifi_available`, `filesystem_mounts`, `reboot` (booleanos), `alarm_state` (`DISARMED`, `ARMING`, `ARMED`, `ALARM`), `v_bus` (finito, 0–30), `toggle_motion` (sectores 1–5), `trigger_emergency` (sectores 1, 3 y 4), `toggle_no_response` (sectores 2–5) y `reset_all`. El armado cuenta 60 segundos; movimiento mientras está armado o un pulsador de emergencia activa la alarma simulada. JSON inválido, propiedades desconocidas y valores fuera de rango devuelven HTTP 400; cuerpos vacíos o mayores a 1024 bytes se rechazan. Todos los controles existen únicamente en el simulador; el firmware ofrece solo lectura y no recibe estos valores.
 
 ### Usar el dashboard desde la placa
 
@@ -129,7 +133,7 @@ La simulación no ejecuta el ELF ni emula el core Arduino. Reproduce el contrato
 
 Se reemplazaron los GPIO 21/22, que no existen en la variante NodeMCU ESP8266, por **TRIG D6/GPIO12** y **ECHO D5/GPIO14**. Son GPIO disponibles para uso digital en esta variante. Ajustar el cableado del sensor para coincidir antes de usar la placa; adaptar el Echo a 3,3 V si el módulo lo alimenta a 5 V.
 
-La página muestra distancia y recepción/timeout del Echo, no una alarma derivada de un umbral. El firmware todavía no implementa la clasificación “Normal/Movimiento detectado” de los datos de ejemplo anteriores; el umbral y la política siguen pendientes de definición.
+La página muestra distancia y recepción/timeout del Echo, no una alarma derivada de un umbral. El firmware todavía no implementa la clasificación “Normal/Movimiento detectado” de los datos de ejemplo anteriores; el umbral y la política física siguen pendientes de definición. La extensión `alarm_system` del simulador es solo para escenarios interactivos locales y no altera esta limitación. Los controles del banco de pruebas y del inspector de sectores se ocultan cuando el estado proviene del firmware.
 
 El modelo permite variar distancias de 2 a 400 cm, deshabilitar Echo y simular arranque detenido si LittleFS falla o si Wi-Fi no conecta. Reiniciar restablece el uptime y la ventana de medición. Estos son escenarios de visualización/prueba del contrato, no emulación eléctrica del HC-SR04 ni del firmware Xtensa.
 
@@ -155,7 +159,7 @@ Las pruebas nativas actuales avanzan un reloj virtual y ejercitan los siguientes
 | Controles inválidos | Distancia fuera de rango / tipo incorrecto | Error sin aplicar cambios parciales |
 | HTTP local | GET `/`, GET `/api/state`, POST `/api/controls` | Dashboard y contrato HTTP disponibles; validar entrada |
 
-Quedan como pruebas futuras la política de alarma (todavía no definida), pérdida de conectividad después del arranque, lecturas intermitentes y escenarios de rollover del `millis()` real del ESP8266.
+Quedan como pruebas futuras la política de alarma del firmware (todavía no definida), pérdida de conectividad después del arranque, lecturas intermitentes y escenarios de rollover del `millis()` real del ESP8266.
 
 El contrato `GET /api/state` ya alimenta la interfaz tanto en simulación como desde el firmware. El servidor local también implementa la API de controles y pruebas HTTP del contrato. La UI no muestra controles de inyección cuando detecta el firmware real. Ver [[funcionalidades-pendientes]] para cobertura que aún falta, requisitos por definir y futuras mejoras.
 
