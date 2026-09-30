@@ -60,7 +60,17 @@ int format_sensor_state(char* buff, size_t sz) {
     "\"sensor\":{\"valid\":%s,\"distance_cm\":%s,"
     "\"age_ms\":%ld,\"echo_timeout_us\":30000},"
     "\"pins\":{\"trigger_gpio\":%u,\"echo_gpio\":%u,\"trigger_label\":\"D6\",\"echo_label\":\"D5\"},"
-    "\"limits\":{\"cpu_mhz\":80,\"flash_bytes\":4194304,\"dram_bytes\":80192,\"iram_bytes\":65536}}",
+    "\"limits\":{\"cpu_mhz\":80,\"flash_bytes\":4194304,\"dram_bytes\":80192,\"iram_bytes\":65536},"
+    "\"alarm_system\":{\"state\":\"DISARMED\",\"state_code\":0,\"v_bus\":12.4,\"v_bus_status\":\"normal\","
+    "\"active_areas\":[],\"motion_areas\":[],\"no_response_areas\":[],"
+    "\"sectors\":["
+    "{\"id\":1,\"name\":\"Área Operativa\",\"node\":\"central\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
+    "{\"id\":2,\"name\":\"Automotores\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR\"},"
+    "{\"id\":3,\"name\":\"Jefatura de Taller\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
+    "{\"id\":4,\"name\":\"Vicedirección\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
+    "{\"id\":5,\"name\":\"Informática\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR\"}"
+    "],"
+    "\"recent_events\":[]}}",
     filesystem_ready ? "true" : "false",
     (unsigned long)millis(),
     measurement_valid ? "true" : "false",
@@ -70,3 +80,4 @@ int format_sensor_state(char* buff, size_t sz) {
     (unsigned)ECHO_PIN
   );
 }
+

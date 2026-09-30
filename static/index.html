@@ -4,122 +4,538 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Alarma técnica · NodeMCU</title>
+    <title>Alarma técnica · Sistema de Alarma Distribuido · NodeMCU</title>
     <link rel="stylesheet" href="/css/pico.min.css">
     <link rel="stylesheet" href="/css/style.css">
   </head>
   <body>
     <main class="container">
+      <!-- Topbar Header -->
       <header class="topbar">
-        <div>
-          <p class="eyebrow">REDES II · MONITOREO</p>
+        <div class="topbar-title-group">
+          <p class="eyebrow">REDES II · SISTEMA DISTRIBUIDO DE SEGURIDAD</p>
           <h1>Alarma técnica</h1>
-          <p class="subtitle">Vista de funcionamiento · NodeMCU ESP8266</p>
+          <p class="subtitle">Monitoreo de Sectores y Gateway Web · NodeMCU ESP8266 + Arduino Nano</p>
         </div>
-        <div id="connectionBadge" class="badge pending" role="status">Conectando…</div>
+        <div class="topbar-badges">
+          <!-- Semáforo del Nodo Central -->
+          <div id="centralTrafficLight" class="traffic-light-pill state-disarmed" role="status" aria-label="Estado de la alarma">
+            <span class="traffic-light-beacon"></span>
+            <div class="traffic-light-info">
+              <span class="traffic-light-label">SISTEMA</span>
+              <strong id="trafficLightState" class="traffic-light-text">DESARMADO</strong>
+            </div>
+            <span id="armingTimer" class="arming-countdown" hidden>60s</span>
+          </div>
+
+          <div id="connectionBadge" class="badge pending" role="status">Conectando…</div>
+        </div>
       </header>
 
+      <!-- Barra de telemetría rápida -->
+      <section class="telemetry-bar" aria-label="Telemetría rápida del sistema">
+        <div class="telemetry-item">
+          <span class="telemetry-label">Alimentación bus (V_bus)</span>
+          <div class="telemetry-value-group">
+            <strong id="vBusValue" class="telemetry-value">12.4 V</strong>
+            <span id="vBusStatusBadge" class="mini-chip normal">Normal</span>
+          </div>
+        </div>
+        <div class="telemetry-item">
+          <span class="telemetry-label">Sectores activos</span>
+          <strong id="activeSectorsCount" class="telemetry-value">0 / 5</strong>
+        </div>
+        <div class="telemetry-item">
+          <span class="telemetry-label">Bus RS485</span>
+          <strong id="rs485Status" class="telemetry-value text-green">Operativo</strong>
+        </div>
+        <div class="telemetry-item">
+          <span class="telemetry-label">Alerta sonora</span>
+          <button id="soundToggleBtn" class="sound-toggle-btn secondary outline" type="button" title="Activar/Silenciar sonido de alarma">
+            <span id="soundIcon">🔇</span> <span id="soundText">Silenciado</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Banner de simulación local -->
       <aside id="simulationNotice" class="simulation-notice" hidden>
-        Simulación local: las entradas del sensor y los periféricos son ficticios; no se está ejecutando el firmware Xtensa.
+        <span class="notice-icon">ℹ️</span>
+        <span><strong>Modo simulación local:</strong> Los datos y estados de los sectores son emulados por el modelo de software local. Los controles de prueba interactivos están habilitados.</span>
       </aside>
 
-      <section class="dashboard" aria-label="Estado del dispositivo">
-        <article class="panel board-panel">
+      <!-- Pestañas de navegación -->
+      <nav class="nav-tabs" aria-label="Vistas principales">
+        <button id="tabBtnMap" class="tab-btn active" data-tab="tabMap" type="button">
+          <span class="tab-icon">🗺️</span> Mapa de Sectores
+        </button>
+        <button id="tabBtnGrid" class="tab-btn" data-tab="tabGrid" type="button">
+          <span class="tab-icon">📋</span> Grilla y Eventos
+        </button>
+        <button id="tabBtnBoard" class="tab-btn" data-tab="tabBoard" type="button">
+          <span class="tab-icon">💻</span> Dispositivo NodeMCU
+        </button>
+        <button id="tabBtnTests" class="tab-btn" data-tab="tabTests" type="button">
+          <span class="tab-icon">🧪</span> Banco de Pruebas
+        </button>
+      </nav>
+
+      <!-- ============================================================= -->
+      <!-- TAB 1: MAPA DE SECTORES                                       -->
+      <!-- ============================================================= -->
+      <section id="tabMap" class="tab-pane active" aria-label="Mapa de sectores">
+        <div class="map-layout">
+          <!-- Columna izquierda: Plano interactivo -->
+          <article class="panel map-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">PLANO ARQUITECTÓNICO DEL COLEGIO</p>
+                <h2>Distribución espacial de sectores</h2>
+              </div>
+              <div class="map-toolbar-actions">
+                <label class="toggle-sm">
+                  <input id="toggleBlueprintImg" type="checkbox" checked> Plano base
+                </label>
+                <label class="toggle-sm">
+                  <input id="toggleProjectedSectors" type="checkbox"> Ver proyectados
+                </label>
+              </div>
+            </header>
+
+            <!-- Contenedor del mapa SVG interactivo -->
+            <div class="map-wrapper">
+              <svg id="schoolMapSvg" viewBox="0 0 805 487" class="school-svg" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <!-- Patrón para sectores sin respuesta (rayado) -->
+                  <pattern id="diagonalHatch" width="10" height="10" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                    <line x1="0" y1="0" x2="0" y2="10" stroke="#ff8800" stroke-width="2" />
+                  </pattern>
+                  <!-- Patrón para sectores proyectados -->
+                  <pattern id="projectedHatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                    <line x1="0" y1="0" x2="0" y2="8" stroke="#556677" stroke-width="1" />
+                  </pattern>
+                </defs>
+
+                <!-- Imagen arquitectónica de fondo -->
+                <image id="blueprintImg" href="/img/plano_escuela.png" x="0" y="0" width="805" height="487" preserveAspectRatio="none" opacity="0.8" />
+
+                <!-- Rotulado de calles circundantes -->
+                <g class="street-labels" pointer-events="none">
+                  <rect x="280" y="4" width="240" height="20" rx="4" fill="rgba(12,17,27,0.85)" />
+                  <text x="400" y="18" text-anchor="middle" class="street-text">▲ CALLE LAPRIDA</text>
+
+                  <rect x="740" y="210" width="22" height="130" rx="4" fill="rgba(12,17,27,0.85)" />
+                  <text x="751" y="275" text-anchor="middle" class="street-text-vertical">CALLE CASEROS ▶</text>
+
+                  <rect x="280" y="463" width="240" height="20" rx="4" fill="rgba(12,17,27,0.85)" />
+                  <text x="400" y="477" text-anchor="middle" class="street-text">▼ CALLE ALVARADO</text>
+                </g>
+
+                <!-- ================= SECTORES ACTIVOS ================= -->
+
+                <!-- Sector 1: Área Operativa (Nano central) -->
+                <g id="mapSector-1" class="map-sector-group" data-sector-id="1">
+                  <rect id="area-1" class="sector-poly normal" x="235" y="165" width="85" height="100" rx="4" />
+                  <circle id="beacon-1" class="beacon-pulse" cx="277" cy="215" r="14" />
+                  <rect x="242" y="172" width="71" height="18" rx="3" class="sector-tag" />
+                  <text x="277" y="185" text-anchor="middle" class="sector-tag-text">ZONA 1</text>
+                  <text x="277" y="215" text-anchor="middle" class="sector-title">Área Operativa</text>
+                  <text x="277" y="232" text-anchor="middle" class="sector-sub">Central (Local)</text>
+                </g>
+
+                <!-- Sector 2: Automotores (RS485 0x02) -->
+                <g id="mapSector-2" class="map-sector-group" data-sector-id="2">
+                  <rect id="area-2" class="sector-poly normal" x="345" y="245" width="155" height="65" rx="4" />
+                  <circle id="beacon-2" class="beacon-pulse" cx="422" cy="277" r="14" />
+                  <rect x="352" y="252" width="71" height="18" rx="3" class="sector-tag" />
+                  <text x="387" y="265" text-anchor="middle" class="sector-tag-text">ZONA 2</text>
+                  <text x="422" y="280" text-anchor="middle" class="sector-title">Automotores</text>
+                  <text x="422" y="295" text-anchor="middle" class="sector-sub">Nodo RS485 0x02</text>
+                </g>
+
+                <!-- Sector 3: Jefatura de Taller (RS485 0x03) -->
+                <g id="mapSector-3" class="map-sector-group" data-sector-id="3">
+                  <polygon id="area-3" class="sector-poly normal" points="660,135 725,135 725,415 675,415 675,275 660,275" />
+                  <circle id="beacon-3" class="beacon-pulse" cx="692" cy="205" r="14" />
+                  <rect x="663" y="142" width="58" height="18" rx="3" class="sector-tag" />
+                  <text x="692" y="155" text-anchor="middle" class="sector-tag-text">ZONA 3</text>
+                  <text x="692" y="200" text-anchor="middle" class="sector-title">Jefatura Taller</text>
+                  <text x="692" y="220" text-anchor="middle" class="sector-sub">RS485 0x03</text>
+                </g>
+
+                <!-- Sector 4: Vicedirección (RS485 0x04) -->
+                <g id="mapSector-4" class="map-sector-group" data-sector-id="4">
+                  <rect id="area-4" class="sector-poly normal" x="145" y="125" width="85" height="110" rx="4" />
+                  <circle id="beacon-4" class="beacon-pulse" cx="187" cy="180" r="14" />
+                  <rect x="152" y="132" width="71" height="18" rx="3" class="sector-tag" />
+                  <text x="187" y="145" text-anchor="middle" class="sector-tag-text">ZONA 4</text>
+                  <text x="187" y="175" text-anchor="middle" class="sector-title">Vicedirección</text>
+                  <text x="187" y="195" text-anchor="middle" class="sector-sub">RS485 0x04</text>
+                </g>
+
+                <!-- Sector 5: Informática (RS485 0x05) -->
+                <g id="mapSector-5" class="map-sector-group" data-sector-id="5">
+                  <polygon id="area-5" class="sector-poly normal" points="515,65 625,65 625,140 600,140 600,240 515,240" />
+                  <circle id="beacon-5" class="beacon-pulse" cx="560" cy="115" r="14" />
+                  <rect x="522" y="72" width="71" height="18" rx="3" class="sector-tag" />
+                  <text x="557" y="85" text-anchor="middle" class="sector-tag-text">ZONA 5</text>
+                  <text x="560" y="115" text-anchor="middle" class="sector-title">Informática</text>
+                  <text x="560" y="135" text-anchor="middle" class="sector-sub">RS485 0x05</text>
+                </g>
+
+                <!-- ================= SECTORES PROYECTADOS ================= -->
+
+                <!-- Sector 6: Biblioteca (Proyectado) -->
+                <g id="mapSector-6" class="map-sector-group projected-group" data-sector-id="6" opacity="0.3">
+                  <rect id="area-6" class="sector-poly projected" x="145" y="245" width="85" height="90" rx="4" />
+                  <text x="187" y="285" text-anchor="middle" class="sector-title-proj">ZONA 6: Biblioteca</text>
+                  <text x="187" y="302" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+                </g>
+
+                <!-- Sector 7: Preceptoría 1 (Proyectado) -->
+                <g id="mapSector-7" class="map-sector-group projected-group" data-sector-id="7" opacity="0.3">
+                  <rect id="area-7" class="sector-poly projected" x="235" y="65" width="90" height="60" rx="4" />
+                  <text x="280" y="95" text-anchor="middle" class="sector-title-proj">ZONA 7: Precept. 1</text>
+                  <text x="280" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+                </g>
+
+                <!-- Sector 8: Preceptoría 2 (Proyectado) -->
+                <g id="mapSector-8" class="map-sector-group projected-group" data-sector-id="8" opacity="0.3">
+                  <rect id="area-8" class="sector-poly projected" x="335" y="65" width="90" height="60" rx="4" />
+                  <text x="380" y="95" text-anchor="middle" class="sector-title-proj">ZONA 8: Precept. 2</text>
+                  <text x="380" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+                </g>
+
+                <!-- Sector 9: Preceptoría 3 (Proyectado) -->
+                <g id="mapSector-9" class="map-sector-group projected-group" data-sector-id="9" opacity="0.3">
+                  <rect id="area-9" class="sector-poly projected" x="435" y="65" width="70" height="60" rx="4" />
+                  <text x="470" y="95" text-anchor="middle" class="sector-title-proj">ZONA 9</text>
+                  <text x="470" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+                </g>
+              </svg>
+            </div>
+
+            <!-- Leyenda de colores del mapa -->
+            <footer class="map-legend">
+              <span class="legend-item"><i class="legend-color normal"></i> Reposo</span>
+              <span class="legend-item"><i class="legend-color motion"></i> Movimiento</span>
+              <span class="legend-item"><i class="legend-color alarm"></i> Alarma activa</span>
+              <span class="legend-item"><i class="legend-color no-response"></i> Sin respuesta (RS485)</span>
+              <span class="legend-item"><i class="legend-color projected"></i> Proyectado</span>
+            </footer>
+          </article>
+
+          <!-- Columna derecha: Inspector del sector seleccionado -->
+          <article id="sectorInspectorPanel" class="panel inspector-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">DETALLE DEL SECTOR</p>
+                <h3 id="inspectorSectorName">Selecciona un sector</h3>
+              </div>
+              <span id="inspectorStatusBadge" class="state-chip">En espera</span>
+            </header>
+
+            <div class="inspector-content">
+              <div class="status-row">
+                <span>Identificador</span>
+                <strong id="inspectorSectorId">—</strong>
+              </div>
+              <div class="status-row">
+                <span>Ubicación física</span>
+                <strong id="inspectorSectorNode">—</strong>
+              </div>
+              <div class="status-row">
+                <span>Periféricos instalados</span>
+                <strong id="inspectorSectorType">—</strong>
+              </div>
+              <div class="status-row">
+                <span>Sensor PIR</span>
+                <strong id="inspectorPirStatus">—</strong>
+              </div>
+              <div class="status-row">
+                <span>Pulsador de pánico</span>
+                <strong id="inspectorPanicStatus">—</strong>
+              </div>
+              <div class="status-row">
+                <span>Canal RS485</span>
+                <strong id="inspectorCommStatus">—</strong>
+              </div>
+
+              <!-- Acciones de simulación interactiva para este sector -->
+              <div id="inspectorSimActions" class="inspector-actions">
+                <p class="eyebrow">ACCIONES DE PRUEBA (SIMULADOR)</p>
+                <div class="inspector-buttons-grid">
+                  <button id="inspectorBtnToggleMotion" class="secondary outline" type="button">
+                    🏃 Simular Movimiento (PIR)
+                  </button>
+                  <button id="inspectorBtnTriggerPanic" class="contrast outline" type="button">
+                    🚨 Pulsar Emergencia
+                  </button>
+                  <button id="inspectorBtnToggleComm" class="secondary outline" type="button">
+                    ⚠️ Simular Falla RS485
+                  </button>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- TAB 2: GRILLA DE SECTORES Y EVENTOS                           -->
+      <!-- ============================================================= -->
+      <section id="tabGrid" class="tab-pane" aria-label="Grilla y eventos" hidden>
+        <!-- Grilla de tarjetas de sectores -->
+        <article class="panel">
           <header class="panel-heading">
             <div>
-              <p class="eyebrow">DISPOSITIVO</p>
-              <h2>NodeMCU ESP8266</h2>
+              <p class="eyebrow">ESTADO DE SECTORES</p>
+              <h2>Todos los sectores de la institución</h2>
             </div>
-            <span id="bootState" class="state-chip">Esperando estado</span>
+            <span class="muted">Actualizado en tiempo real</span>
           </header>
-          <div class="board-layout">
-            <div class="board" role="img" aria-label="Diagrama simplificado de una placa NodeMCU ESP8266">
-              <div class="board-usb">USB</div>
-              <div class="board-chip">
-                <span>ESP</span>
-                <strong>8266</strong>
-                <small>ESP-12E</small>
-              </div>
-              <div class="board-antenna"></div>
-              <div class="board-label">NodeMCU</div>
-              <div class="board-led"><i id="ledIndicator"></i> LED</div>
-              <div class="board-pins left-pins">
-                <span>D0</span><span>D1</span><span>D2</span><span>D3</span><span>D4</span>
-                <span class="sensor-pin">D5 <b id="echoPin">Echo</b></span><span class="sensor-pin">D6 <b id="triggerPin">Trig</b></span>
-                <span>D7</span><span>D8</span>
-              </div>
-              <div class="board-pins right-pins">
-                <span>3V3</span><span>GND</span><span>RST</span><span>A0</span><span>RX</span>
-                <span>TX</span><span>GND</span><span>VIN</span><span>EN</span>
-              </div>
-            </div>
-            <div class="board-facts">
-              <div><span>CPU</span><strong id="cpuLimit">—</strong></div>
-              <div><span>Flash</span><strong id="flashLimit">—</strong></div>
-              <div><span>GPIO Trigger</span><strong id="triggerGpio">—</strong></div>
-              <div><span>GPIO Echo</span><strong id="echoGpio">—</strong></div>
-              <p class="hint">Límites de referencia de la placa. El uso de memoria solo se valida compilando para Xtensa.</p>
-            </div>
+          <div id="sectorsCardsGrid" class="sectors-grid">
+            <!-- Renderizado dinámico desde main.js -->
           </div>
         </article>
 
-        <article class="panel sensor-panel">
+        <!-- Registro de eventos recientes -->
+        <article class="panel events-panel">
           <header class="panel-heading">
             <div>
-              <p class="eyebrow">SENSOR ULTRASÓNICO</p>
-              <h2>Distancia medida</h2>
+              <p class="eyebrow">HISTORIAL OPERATIVO</p>
+              <h2>Eventos recientes del sistema</h2>
             </div>
-            <span id="sampleAge" class="muted">Sin lectura</span>
+            <span class="muted">Últimos eventos registrados</span>
           </header>
-          <div class="reading">
-            <strong id="distanceValue">—</strong><span>cm</span>
+          <div class="table-container">
+            <table class="events-table">
+              <thead>
+                <tr>
+                  <th>Hora</th>
+                  <th>Severidad</th>
+                  <th>Área / Sector</th>
+                  <th>Código</th>
+                  <th>Evento</th>
+                  <th>Detalles</th>
+                </tr>
+              </thead>
+              <tbody id="eventsTableBody">
+                <tr>
+                  <td colspan="6" class="text-center muted">Sin eventos registrados aún.</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div class="meter" role="meter" aria-label="Distancia medida" aria-valuemin="0" aria-valuemax="400" aria-valuenow="0">
-            <i id="distanceMeter"></i>
-          </div>
-          <p id="sensorMessage" class="sensor-message">Esperando primera medición.</p>
-          <p class="hint">Muestreo cada 1 s · timeout Echo: 30 ms. Esta lectura aún no define un umbral de alarma.</p>
-        </article>
-
-        <article class="panel status-panel">
-          <p class="eyebrow">CONECTIVIDAD</p>
-          <div class="status-row"><span>Wi-Fi</span><strong id="wifiState">—</strong></div>
-          <div class="status-row"><span>LittleFS</span><strong id="filesystemState">—</strong></div>
-          <div class="status-row"><span>Firmware</span><strong id="firmwareState">—</strong></div>
-          <div class="status-row"><span>Tiempo activo</span><strong id="uptime">—</strong></div>
-        </article>
-
-        <section id="simulatorControls" class="panel controls-panel" hidden>
-          <header class="panel-heading">
-            <div>
-              <p class="eyebrow">BANCO DE PRUEBAS</p>
-              <h2>Escenarios simulados</h2>
-            </div>
-            <button id="rebootButton" class="secondary outline" type="button">Reiniciar</button>
-          </header>
-          <label for="distanceControl">Distancia del objeto <output id="distanceOutput">48 cm</output></label>
-          <input id="distanceControl" type="range" min="2" max="400" step="1" value="48">
-          <div class="control-grid">
-            <label class="toggle"><input id="echoControl" type="checkbox" checked> Echo responde</label>
-            <label class="toggle"><input id="wifiControl" type="checkbox" checked> Wi-Fi disponible</label>
-            <label class="toggle"><input id="filesystemControl" type="checkbox" checked> LittleFS monta</label>
-          </div>
-          <p class="hint">Quitar Wi-Fi o LittleFS permite observar los fallos de arranque que hoy detienen el firmware.</p>
-          <p id="controlError" class="error-message" role="alert" hidden></p>
-        </section>
-
-        <article id="eventPanel" class="panel event-panel" hidden>
-          <header class="panel-heading">
-            <div>
-              <p class="eyebrow">SERIAL SIMULADO</p>
-              <h2>Eventos recientes</h2>
-            </div>
-          </header>
-          <ol id="eventLog" class="event-log"></ol>
         </article>
       </section>
-      <footer class="footer-note">La interfaz consulta <code>/api/state</code>. La simulación ayuda a probar estados y flujo web; no sustituye la compilación ni la validación eléctrica en la placa.</footer>
+
+      <!-- ============================================================= -->
+      <!-- TAB 3: DISPOSITIVO NODEMCU ESP8266 (DASHBOARD ORIGINAL)       -->
+      <!-- ============================================================= -->
+      <section id="tabBoard" class="tab-pane" aria-label="Dispositivo NodeMCU" hidden>
+        <section class="dashboard">
+          <!-- Tarjeta Placa NodeMCU -->
+          <article class="panel board-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">DISPOSITIVO CENTRAL</p>
+                <h2>NodeMCU ESP8266</h2>
+              </div>
+              <span id="bootState" class="state-chip">Esperando estado</span>
+            </header>
+            <div class="board-layout">
+              <div class="board" role="img" aria-label="Diagrama simplificado de una placa NodeMCU ESP8266">
+                <div class="board-usb">USB</div>
+                <div class="board-chip">
+                  <span>ESP</span>
+                  <strong>8266</strong>
+                  <small>ESP-12E</small>
+                </div>
+                <div class="board-antenna"></div>
+                <div class="board-label">NodeMCU</div>
+                <div class="board-led"><i id="ledIndicator"></i> LED</div>
+                <div class="board-pins left-pins">
+                  <span>D0</span><span>D1</span><span>D2</span><span>D3</span><span>D4</span>
+                  <span class="sensor-pin">D5 <b id="echoPin">Echo</b></span>
+                  <span class="sensor-pin">D6 <b id="triggerPin">Trig</b></span>
+                  <span>D7</span><span>D8</span>
+                </div>
+                <div class="board-pins right-pins">
+                  <span>3V3</span><span>GND</span><span>RST</span><span>A0</span><span>RX</span>
+                  <span>TX</span><span>GND</span><span>VIN</span><span>EN</span>
+                </div>
+              </div>
+              <div class="board-facts">
+                <div><span>CPU</span><strong id="cpuLimit">—</strong></div>
+                <div><span>Flash</span><strong id="flashLimit">—</strong></div>
+                <div><span>GPIO Trigger</span><strong id="triggerGpio">—</strong></div>
+                <div><span>GPIO Echo</span><strong id="echoGpio">—</strong></div>
+                <p class="hint">Límites de hardware del microcontrolador Xtensa LX106 a 80 MHz.</p>
+              </div>
+            </div>
+          </article>
+
+          <!-- Sensor ultrasónico -->
+          <article class="panel sensor-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">SENSOR ULTRASÓNICO LOCAL</p>
+                <h2>Distancia HC-SR04</h2>
+              </div>
+              <span id="sampleAge" class="muted">Sin lectura</span>
+            </header>
+            <div class="reading">
+              <strong id="distanceValue">—</strong><span>cm</span>
+            </div>
+            <div class="meter" role="meter" aria-label="Distancia medida" aria-valuemin="0" aria-valuemax="400" aria-valuenow="0">
+              <i id="distanceMeter"></i>
+            </div>
+            <p id="sensorMessage" class="sensor-message">Esperando primera medición.</p>
+            <p class="hint">Muestreo cada 1 s · timeout Echo: 30 ms · pines D6 (Trig) / D5 (Echo).</p>
+          </article>
+
+          <!-- Conectividad y Sistema -->
+          <article class="panel status-panel">
+            <p class="eyebrow">CONECTIVIDAD Y SERVICIOS</p>
+            <div class="status-row"><span>Wi-Fi Station</span><strong id="wifiState">—</strong></div>
+            <div class="status-row"><span>Almacenamiento LittleFS</span><strong id="filesystemState">—</strong></div>
+            <div class="status-row"><span>Firmware runtime</span><strong id="firmwareState">—</strong></div>
+            <div class="status-row"><span>Tiempo de actividad</span><strong id="uptime">—</strong></div>
+          </article>
+
+          <!-- Servidor HTTP -->
+          <article class="panel server-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">SERVIDOR WEB EMPOTRADO</p>
+                <h2>Endpoints HTTP</h2>
+              </div>
+              <span id="serverState" class="state-chip">Sin estado</span>
+            </header>
+            <div class="status-row"><span>URL base</span><strong id="serverUrl">—</strong></div>
+            <div class="status-row"><span>Puerto</span><strong id="serverPort">—</strong></div>
+            <div class="status-row"><span>Última ruta consultada</span><strong id="serverLastRequest">—</strong></div>
+            <div class="source-panel">
+              <label for="stateSourceInput">Origen del estado</label>
+              <div class="source-controls">
+                <input id="stateSourceInput" type="url" value="/api/state" placeholder="http://192.168.0.53/api/state">
+                <button id="applySourceButton" class="secondary outline" type="button">Cargar</button>
+              </div>
+            </div>
+            <div class="server-routes">
+              <span class="eyebrow server-routes-label">Rutas registradas</span>
+              <div id="serverRoutes" class="route-pills"></div>
+            </div>
+          </article>
+
+          <!-- Log serial de la placa -->
+          <article id="eventPanel" class="panel event-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">CONSOLA SERIAL (9600 BAUD)</p>
+                <h2>Mensajes de firmware</h2>
+              </div>
+            </header>
+            <ol id="eventLog" class="event-log"></ol>
+          </article>
+        </section>
+      </section>
+
+      <!-- ============================================================= -->
+      <!-- TAB 4: BANCO DE PRUEBAS DEL SIMULADOR                         -->
+      <!-- ============================================================= -->
+      <section id="tabTests" class="tab-pane" aria-label="Banco de pruebas" hidden>
+        <section class="test-bench-grid">
+          <!-- Control del Estado Central de Alarma -->
+          <article class="panel test-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">CONTROL DE ESTADO CENTRAL</p>
+                <h2>Máquina de estados</h2>
+              </div>
+              <button id="resetAllBtn" class="contrast outline btn-sm" type="button">🔄 Reset Total</button>
+            </header>
+            <p class="hint">Simula los comandos de teclado o llave para cambiar el estado de la alarma central.</p>
+            <div class="state-buttons-grid">
+              <button id="btnSetDisarmed" class="btn-state state-btn-disarmed" type="button">
+                🟢 DESARMAR
+              </button>
+              <button id="btnSetArming" class="btn-state state-btn-arming" type="button">
+                🟡 INICIAR ARMADO (60s)
+              </button>
+              <button id="btnSetArmed" class="btn-state state-btn-armed" type="button">
+                🔵 FORZAR ARMADO
+              </button>
+              <button id="btnSetAlarm" class="btn-state state-btn-alarm" type="button">
+                🔴 DISPARAR ALARMA GENERAL
+              </button>
+            </div>
+          </article>
+
+          <!-- Control de Tensión de Bus (V_bus) -->
+          <article class="panel test-panel">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">ALIMENTACIÓN DEL SISTEMA</p>
+                <h2>Tensión de bus V_bus</h2>
+              </div>
+              <strong id="vBusSliderDisplay" class="voltage-display">12.4 V</strong>
+            </header>
+            <label for="vBusControl">Ajuste de tensión continuo (0V – 30V):</label>
+            <input id="vBusControl" type="range" min="0" max="30" step="0.1" value="12.4">
+            <div class="presets-row">
+              <button id="vBusPresetNominal" class="secondary outline btn-sm" type="button">12.4V (Nominal)</button>
+              <button id="vBusPresetWarning" class="secondary outline btn-sm" type="button">11.5V (Alerta)</button>
+              <button id="vBusPresetAlarm" class="contrast outline btn-sm" type="button">10.5V (Crítico &lt; 11V)</button>
+            </div>
+            <p class="hint">Valores menores a 11.8 V generan advertencia; menores a 11.0 V disparan alarma crítica.</p>
+          </article>
+
+          <!-- Matriz de Sectores y Sensores -->
+          <article class="panel test-panel full-width">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">MATRIZ DE DISPARO RÁPIDO</p>
+                <h2>Simulación por Sector</h2>
+              </div>
+            </header>
+            <p class="hint">Haz clic en los botones para alternar la detección de movimiento (PIR), activar el botón de emergencia o simular un corte de bus en cada sector.</p>
+            <div id="simSectorCardsContainer" class="sim-sectors-grid">
+              <!-- Generado dinámicamente -->
+            </div>
+          </article>
+
+          <!-- Periféricos del NodeMCU (HC-SR04 y fallos de arranque) -->
+          <article class="panel test-panel full-width">
+            <header class="panel-heading">
+              <div>
+                <p class="eyebrow">PERIFÉRICOS DEL NODEMCU</p>
+                <h2>Sensor local y condiciones de boot</h2>
+              </div>
+              <button id="rebootButton" class="secondary outline btn-sm" type="button">Reiniciar ESP8266</button>
+            </header>
+            <div class="nodemcu-sim-layout">
+              <div class="nodemcu-sim-distance">
+                <label for="distanceControl">Distancia HC-SR04: <output id="distanceOutput">48 cm</output></label>
+                <input id="distanceControl" type="range" min="2" max="400" step="1" value="48">
+              </div>
+              <div class="nodemcu-sim-toggles">
+                <label class="toggle"><input id="echoControl" type="checkbox" checked> Echo responde</label>
+                <label class="toggle"><input id="wifiControl" type="checkbox" checked> Wi-Fi disponible</label>
+                <label class="toggle"><input id="filesystemControl" type="checkbox" checked> LittleFS monta</label>
+              </div>
+            </div>
+            <p id="controlError" class="error-message" role="alert" hidden></p>
+          </article>
+        </section>
+      </section>
+
+      <!-- Pie de página informativo -->
+      <footer class="footer-note">
+        Sistema de Alarma Técnica Distribuido · Proyecto de Cátedra Redes II · UCASAL. Firmware NodeMCU ESP8266 + Arduino Nano.
+      </footer>
     </main>
+
     <script src="/js/main.js"></script>
   </body>
 </html>

@@ -37,6 +37,11 @@ class DeviceModel:
         timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
         self._logs.append(f"{timestamp}  {message}")
 
+    def record_http_request(self, method: str, path: str) -> None:
+        with self._lock:
+            normalized = path if path else "/"
+            self._log(f"HTTP {method.upper()} {normalized}")
+
     @property
     def _boot_state(self) -> str:
         if not self._filesystem_mounts:
@@ -89,6 +94,20 @@ class DeviceModel:
                 "flash_bytes": 4 * 1024 * 1024,
                 "dram_bytes": 80192,
                 "iram_bytes": 65536,
+            },
+            "server": {
+                "status": "running" if state == "running" else "degraded",
+                "host": "127.0.0.1",
+                "port": 8080,
+                "base_url": "http://127.0.0.1:8080",
+                "last_request": "/",
+                "routes": [
+                    "/",
+                    "/api/state",
+                    "/css/pico.min.css",
+                    "/css/style.css",
+                    "/js/main.js",
+                ],
             },
             "controls": {
                 "distance_cm": self._distance_cm,

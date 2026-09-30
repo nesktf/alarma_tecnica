@@ -1,8 +1,9 @@
 import json
 import threading
 import unittest
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from simulator.model import ControlError, DeviceModel
@@ -129,6 +130,42 @@ class SimulatorHttpTests(unittest.TestCase):
             state = json.load(response)
         self.assertEqual(state["state"], "waiting_wifi")
         self.assertFalse(state["wifi"])
+
+    def test_server_activity_is_visible_in_state_payload(self):
+       with urlopen(self.base_url + "/api/state") as response:
+           state = json.load(response)
+       self.assertEqual(state["server"]["status"], "running")
+       self.assertEqual(state["server"]["last_request"], "/api/state")
+       self.assertIn("/api/state", state["server"]["routes"])
+       self.assertIn("bind_url", state["server"])
+       self.assertIn("virtual_url", state["server"])
+
+    def test_proxy_can_forward_a_remote_state_endpoint(self):
+       class PreviewHandler(BaseHTTPRequestHandler):
+           def do_GET(self):
+               payload = json.dumps({"simulator": False, "state": "running", "wifi": True}).encode("utf-8")
+               self.send_response(200)
+               self.send_header("Content-Type", "application/json; charset=utf-8")
+               self.send_header("Content-Length", str(len(payload)))
+               self.end_headers()
+               self.wfile.write(payload)
+
+           def log_message(self, *args, **kwargs):
+               return
+
+       remote_server = ThreadingHTTPServer(("127.0.0.1", 0), PreviewHandler)
+       thread = threading.Thread(target=remote_server.serve_forever, daemon=True)
+       thread.start()
+       try:
+           target = f"http://127.0.0.1:{remote_server.server_port}/api/state"
+           with urlopen(self.base_url + "/api/proxy?url=" + quote(target)) as response:
+               state = json.load(response)
+           self.assertEqual(state["state"], "running")
+           self.assertFalse(state["simulator"])
+       finally:
+           remote_server.shutdown()
+           thread.join()
+           remote_server.server_close()
 
 
 if __name__ == "__main__":

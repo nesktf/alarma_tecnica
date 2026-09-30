@@ -9,6 +9,13 @@ tags:
 
 Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya funciona de lo que falta definir, implementar o verificar. La simulación local ayuda a desarrollar el dashboard y algunos estados; **no sustituye** el build Xtensa ni las pruebas en el NodeMCU físico.
 
+## Mapa de documentación actual
+
+- `README.md`: vista general del repositorio, comandos rápidos y estructura del proyecto.
+- `Documentacion/Redes II - Servidor web - Informe del proyecto.md`: informe base de la materia y trazado funcional.
+- `redes-ii-vault/Arquitectura/Simulacion y arquitectura del sistema.md`: detalles operativos de firmware, simulador y validación.
+- `AGENTS.md`: guía operativa del proyecto y lineamientos para trabajo y mantenimiento.
+
 ## Estado actual
 
 - [x] Firmware ESP8266 sirve archivos estáticos desde LittleFS.

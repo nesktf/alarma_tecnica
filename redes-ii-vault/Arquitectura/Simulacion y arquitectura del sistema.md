@@ -9,6 +9,12 @@ tags:
 
 ## Resumen
 
+La solución implementada permite observar el mismo dashboard con el ESP8266 o con un modelo local. La documentación del proyecto queda organizada en tres capas:
+
+1. `README.md` para el panorama operativo del repositorio.
+2. `Documentacion/Redes II - Servidor web - Informe del proyecto.md` para la fundamentación académica del sistema.
+3. `redes-ii-vault/` para la arquitectura, el backlog y los criterios de terminado.
+
 La solución implementada permite observar el mismo dashboard con el ESP8266 o con un modelo local:
 
 1. El firmware del ESP8266 mide el sensor y publica su estado por HTTP.
