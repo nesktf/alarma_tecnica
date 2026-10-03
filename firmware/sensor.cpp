@@ -1,5 +1,6 @@
 #include "sensor.hpp"
 #include <ESP8266WiFi.h>
+#include "credentials.h"
 
 #define TRIG_PIN D6
 #define ECHO_PIN D5
