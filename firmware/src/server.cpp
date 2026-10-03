@@ -46,7 +46,7 @@ static void init_wifi() {
 }
 
 static void send_state() {
-  char response[384];
+  char response[1024];
   const auto len = format_sensor_state(response, sizeof(response));
   if (len < 0 || (size_t)len >= sizeof(response)) {
     server.send(500, "application/json", "{\"error\":\"State response overflow\"}");
