@@ -5,7 +5,7 @@ set_defaultplat("cross")
 set_targetdir("$(builddir)")
 
 -- ----------------------------------------------------------------------------
--- Toolchain: Xtensa LX106 ELF (bundled in lib/esp8266/tools)
+-- Toolchains: Xtensa LX106 ELF (ESP8266) & AVR GCC (Arduino Nano)
 -- ----------------------------------------------------------------------------
 toolchain("xtensa-lx106-elf")
     set_kind("standalone")
@@ -34,7 +34,55 @@ toolchain("xtensa-lx106-elf")
     end)
 toolchain_end()
 
-set_toolchains("xtensa-lx106-elf")
+toolchain("avr")
+    set_kind("standalone")
+
+    on_load(function (toolchain)
+        local bindir = nil
+        local env_avr = os.getenv("AVR_GCC") or os.getenv("AVR_PATH")
+        if env_avr and #env_avr > 0 then
+            if os.isfile(env_avr) then
+                bindir = path.directory(env_avr)
+            elseif os.isdir(env_avr) then
+                bindir = env_avr
+            end
+        end
+        if not bindir then
+            -- Check common Arduino toolchain install directories
+            local home = os.getenv("HOME") or ""
+            local candidates = {
+                path.join(home, ".arduino15/packages/arduino/tools/avr-gcc"),
+                "/usr/bin",
+                "/usr/local/bin",
+                "/opt/arduino/hardware/tools/avr/bin"
+            }
+            for _, base in ipairs(candidates) do
+                if os.isdir(base) then
+                    local match = os.files(path.join(base, "**/bin/avr-gcc"))
+                    if match and #match > 0 then
+                        bindir = path.directory(match[1])
+                        break
+                    elseif os.isfile(path.join(base, "avr-gcc")) then
+                        bindir = base
+                        break
+                    end
+                end
+            end
+        end
+        if bindir then
+            toolchain:add("runenvs", "PATH", bindir)
+        end
+    end)
+
+    set_toolset("cc", "avr-gcc")
+    set_toolset("cxx", "avr-g++")
+    set_toolset("ld", "avr-gcc")
+    set_toolset("ar", "avr-gcc-ar", "avr-ar")
+    set_toolset("as", "avr-gcc")
+    set_toolset("strip", "avr-strip")
+    set_toolset("objcopy", "avr-objcopy")
+    set_toolset("size", "avr-size")
+toolchain_end()
 
 -- ----------------------------------------------------------------------------
 -- Options
@@ -50,12 +98,17 @@ option("port")
 option_end()
 
 option("baud")
-    set_default(115200)
-    set_description("Upload baud rate (e.g. 115200, 460800)")
+    set_default("")
+    set_description("Upload baud rate (e.g. 115200, 57600)")
+option_end()
+
+option("nano_mcu")
+    set_default("atmega328p")
+    set_description("Microcontroller for Arduino Nano (e.g. atmega328p, atmega168)")
 option_end()
 
 -- ----------------------------------------------------------------------------
--- Common ESP8266 Arduino rules
+-- Rules: ESP8266 & Arduino AVR Nano
 -- ----------------------------------------------------------------------------
 rule("esp8266.config")
     on_load(function (target)
@@ -123,12 +176,77 @@ rule("esp8266.config")
     end)
 rule_end()
 
+rule("avr_nano.config")
+    on_load(function (target)
+        target:set("languages", "gnu11", "gnuxx11")
+
+        target:add("defines",
+            "F_CPU=16000000L",
+            "ARDUINO=10819",
+            "ARDUINO_AVR_NANO",
+            "ARDUINO_ARCH_AVR",
+            "__AVR_ATmega328P__"
+        )
+
+        target:add("cxflags",
+            "-mmcu=atmega328p",
+            "-Os",
+            "-g",
+            "-Wall",
+            "-ffunction-sections",
+            "-fdata-sections",
+            "-flto",
+            "-fno-fat-lto-objects",
+            {force = true}
+        )
+
+        target:add("cxxflags",
+            "-fpermissive",
+            "-fno-exceptions",
+            "-fno-threadsafe-statics",
+            "-Wno-error=narrowing",
+            {force = true}
+        )
+
+        target:add("asflags",
+            "-mmcu=atmega328p",
+            "-x", "assembler-with-cpp",
+            "-flto",
+            {force = true}
+        )
+
+        target:add("ldflags",
+            "-mmcu=atmega328p",
+            "-Os",
+            "-g",
+            "-flto",
+            "-fuse-linker-plugin",
+            "-Wl,--gc-sections",
+            "-lm",
+            {force = true}
+        )
+
+        target:add("includedirs",
+            "firmware/lib/ArduinoCore-avr/cores/arduino",
+            "firmware/lib/ArduinoCore-avr/variants/eightanaloginputs",
+            "firmware/lib/ArduinoCore-avr/libraries/EEPROM/src",
+            "firmware/lib/ArduinoCore-avr/libraries/Wire/src",
+            "firmware/lib/ArduinoCore-avr/libraries/SPI/src",
+            "firmware/lib/ArduinoCore-avr/libraries/SoftwareSerial/src",
+            "firmware/lib/ArduinoRS485/src",
+            "firmware"
+        )
+    end)
+rule_end()
+
 -- ----------------------------------------------------------------------------
--- Targets
+-- Targets: ESP8266
 -- ----------------------------------------------------------------------------
 target("esp8266_core")
     set_kind("static")
+    set_default(false)
     set_targetdir("$(builddir)")
+    set_toolchains("xtensa-lx106-elf")
     add_rules("esp8266.config")
     add_files(
         "firmware/lib/esp8266/cores/esp8266/**.c",
@@ -139,21 +257,27 @@ target_end()
 
 target("esp8266_wifi")
     set_kind("static")
+    set_default(false)
     set_targetdir("$(builddir)")
+    set_toolchains("xtensa-lx106-elf")
     add_rules("esp8266.config")
     add_files("firmware/lib/esp8266/libraries/ESP8266WiFi/src/**.cpp")
 target_end()
 
 target("esp8266_webserver")
     set_kind("static")
+    set_default(false)
     set_targetdir("$(builddir)")
+    set_toolchains("xtensa-lx106-elf")
     add_rules("esp8266.config")
     add_files("firmware/lib/esp8266/libraries/ESP8266WebServer/src/**.cpp")
 target_end()
 
 target("esp8266_littlefs")
     set_kind("static")
+    set_default(false)
     set_targetdir("$(builddir)")
+    set_toolchains("xtensa-lx106-elf")
     add_rules("esp8266.config")
     add_files(
         "firmware/lib/esp8266/libraries/LittleFS/src/**.c",
@@ -163,8 +287,10 @@ target_end()
 
 target("server")
     set_kind("binary")
+    set_default(true)
     set_filename("server.elf")
     set_targetdir("$(builddir)")
+    set_toolchains("xtensa-lx106-elf")
     add_rules("esp8266.config")
 
     add_files("firmware/server.cpp")
@@ -277,14 +403,8 @@ target("server")
 #endif // ENV_H
 ]], wifi_ssid, wifi_pass, ip_formatted, gw_formatted, mask_formatted)
 
-        --local outdirs = {gendur, path.join(os.projectdir(), "src")}
-        --for _, dir in ipairs(outdirs) do
-        --os.mkdir(gendur)
         local target_file = path.join(gendur, "credentials.h")
         io.writefile(target_file, header_content)
-            --io.writefile(target_file, header_content)
-        --end
-
 
         -- 2. Generate buildinfo.h & buildinfo.cpp
         local buildinfo_h = path.join(gendur, "buildinfo.h")
@@ -386,16 +506,90 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
 target_end()
 
 -- ----------------------------------------------------------------------------
+-- Targets: Arduino Nano (AVR ATmega328P)
+-- ----------------------------------------------------------------------------
+target("nano_core")
+    set_kind("static")
+    set_default(false)
+    set_targetdir("$(builddir)")
+    set_toolchains("avr")
+    add_rules("avr_nano.config")
+    add_files(
+        "firmware/lib/ArduinoCore-avr/cores/arduino/**.c",
+        "firmware/lib/ArduinoCore-avr/cores/arduino/**.cpp",
+        "firmware/lib/ArduinoCore-avr/cores/arduino/**.S"
+    )
+target_end()
+
+target("arduino_rs485")
+    set_kind("static")
+    set_default(false)
+    set_targetdir("$(builddir)")
+    set_toolchains("avr")
+    add_rules("avr_nano.config")
+    add_files("firmware/lib/ArduinoRS485/src/**.cpp")
+    add_deps("nano_core")
+target_end()
+
+target("node_station")
+    set_kind("binary")
+    set_default(true)
+    set_filename("nano.elf")
+    set_targetdir("$(builddir)")
+    set_toolchains("avr")
+    add_rules("avr_nano.config")
+
+    add_files("firmware/node_station.cpp")
+    add_deps("nano_core", "arduino_rs485")
+
+    after_build(function (target)
+        local outdir = target:targetdir()
+        local elf_path = target:targetfile()
+        local hex_path = path.join(outdir, "nano.hex")
+        local node_station_hex_path = path.join(outdir, "node_station.hex")
+
+        print("Creating hex image: %s", hex_path)
+        os.execv("avr-objcopy", {
+            "-O", "ihex",
+            "-R", ".eeprom",
+            elf_path,
+            hex_path
+        })
+        os.cp(hex_path, node_station_hex_path)
+
+        print("Reporting size for %s:", elf_path)
+        try {
+            function ()
+                os.execv("avr-size", {"-C", "--mcu=atmega328p", elf_path})
+            end,
+            catch {
+                function ()
+                    try {
+                        function ()
+                            os.execv("avr-size", {"-A", elf_path})
+                        end
+                    }
+                end
+            }
+        }
+    end)
+target_end()
+
+-- ----------------------------------------------------------------------------
 -- Tasks: Flash & Monitor
 -- ----------------------------------------------------------------------------
 task("flash")
     set_menu({
         usage = "xmake flash [options]",
-        description = "Flash firmware (and optionally filesystem) to ESP8266 board",
+        description = "Flash firmware to ESP8266 or Arduino Nano board",
         options = {
-            {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 115200, "Upload baudrate"},
-            {'a', "all",  "k",  false,  "Flash both firmware and LittleFS filesystem"}
+            {'t', "target",     "kv", "auto",       "Target board/firmware ('esp8266', 'nano', or 'auto')"},
+            {'p', "port",       "kv", nil,          "Serial port (e.g. /dev/ttyUSB0)"},
+            {'b', "baud",       "kv", nil,          "Upload baudrate (e.g. 57600 for old nano, 115200 for optiboot/esp8266)"},
+            {'B', "bootloader", "kv", "auto",       "Nano bootloader type ('auto', 'old' for 57600, 'new' for 115200)"},
+            {'a', "all",        "k",  false,        "Flash both firmware and LittleFS filesystem (ESP8266 only)"},
+            {'m', "mcu",        "kv", "atmega328p", "Microcontroller for Nano (default: atmega328p)"},
+            {'P', "programmer", "kv", "arduino",   "Programmer protocol for Nano (default: arduino)"}
         }
     })
 
@@ -403,42 +597,49 @@ task("flash")
         import("core.base.option")
         import("core.project.project")
 
-        -- Ensure target is built
-        os.exec("xmake")
-
-        local target = project.target("server")
-        local bin_path = path.join(target:targetdir(), "server.bin")
-        if not os.isfile(bin_path) then
-            bin_path = path.join(os.projectdir(), "build/server.bin")
-        end
-        local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
-        if not os.isfile(fs_bin_path) then
-            fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
-        end
-
+        local target_name = option.get("target") or "auto"
         local port = option.get("port")
-        local baud = tostring(option.get("baud") or 115200)
+        local baud = option.get("baud")
+        local bootloader = option.get("bootloader") or "auto"
         local flash_all = option.get("all")
+        local mcu = option.get("mcu") or "atmega328p"
+        local programmer = option.get("programmer") or "arduino"
 
-        local upload_tool = path.join(os.projectdir(), "firmware/lib/esp8266/tools/upload.py")
-        local args = {upload_tool, "--chip", "esp8266"}
+        -- Build appropriate target or all default targets
+        if target_name == "esp8266" or target_name == "server" or target_name == "nodemcu" then
+            os.exec("xmake build server")
+        elseif target_name == "node_station" or target_name == "nano" or target_name == "arduino" or target_name == "avr" then
+            os.exec("xmake build node_station")
+        else
+            -- auto: build both
+            os.exec("xmake")
+        end
+
+        local flasher_tool = path.join(os.projectdir(), "firmware/tools/flasher.py")
+        local args = {flasher_tool, "-t", target_name}
+
         if port and #port > 0 then
-            table.insert(args, "--port")
+            table.insert(args, "-p")
             table.insert(args, port)
         end
-        table.insert(args, "--baud")
-        table.insert(args, baud)
-        table.insert(args, "write_flash")
-        table.insert(args, "0x0")
-        table.insert(args, bin_path)
-
+        if baud and #tostring(baud) > 0 then
+            table.insert(args, "-b")
+            table.insert(args, tostring(baud))
+        end
+        if bootloader and #bootloader > 0 then
+            table.insert(args, "-B")
+            table.insert(args, bootloader)
+        end
         if flash_all then
-            table.insert(args, "write_flash")
-            table.insert(args, "0x200000")
-            table.insert(args, fs_bin_path)
-            print("Flashing firmware (%s @ 0x0) and LittleFS (%s @ 0x200000)...", bin_path, fs_bin_path)
-        else
-            print("Flashing firmware %s @ 0x0 (baud: %s)...", bin_path, baud)
+            table.insert(args, "-a")
+        end
+        if mcu and #mcu > 0 then
+            table.insert(args, "--mcu")
+            table.insert(args, mcu)
+        end
+        if programmer and #programmer > 0 then
+            table.insert(args, "--programmer")
+            table.insert(args, programmer)
         end
 
         os.execv("python3", args)
@@ -459,8 +660,8 @@ task("flash_fs")
         import("core.base.option")
         import("core.project.project")
 
-        -- Ensure target is built
-        os.exec("xmake")
+        -- Ensure server target is built
+        os.exec("xmake build server")
 
         local target = project.target("server")
         local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
@@ -490,10 +691,10 @@ task_end()
 task("monitor")
     set_menu({
         usage = "xmake monitor [options]",
-        description = "Open serial monitor to ESP8266",
+        description = "Open serial monitor to connected board",
         options = {
             {'p', "port", "kv", nil, "Serial port (e.g. /dev/ttyUSB0)"},
-            {'b', "baud", "kv", 9600, "Serial baudrate (default 9600 for server.cpp)"}
+            {'b', "baud", "kv", 9600, "Serial baudrate (default 9600)"}
         }
     })
 
