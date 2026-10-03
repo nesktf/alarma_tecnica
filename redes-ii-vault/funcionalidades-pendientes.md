@@ -23,10 +23,24 @@ Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya
 - [x] Endpoint `GET /api/state` para compartir la medición y estado de firmware con la interfaz.
 - [x] Dashboard compartido entre NodeMCU y el simulador local.
 - [x] Simulador local para distancia, timeout Echo, fallo de Wi-Fi, fallo LittleFS y reinicio.
-- [x] Pruebas nativas del modelo y API HTTP.
-- [x] Un único `build/firmware.bin` que combina aplicación y LittleFS para flasheo.
+- [x] Pruebas nativas del modelo, API HTTP y **contrato** contra `shared/api_state.schema.json`.
+- [x] Un único `firmware/build/server.bin` + `littlefs.bin` para flasheo (build cruzado Xtensa).
+- [x] Estructura en dos capas: `firmware/` (se flashea) y `simulator/` (previsualización), con `lib/esp8266` en la raíz.
 - [x] Pines del sensor actualizados a D6/GPIO12 y D5/GPIO14 para la variante NodeMCU.
 - [ ] Confirmar en placa el sensor/cableado y el divisor o adaptador de nivel de Echo.
+
+## Flujo de trabajo: crecer firmware y simulador a la par
+
+Para cada funcionalidad nueva del sistema real, seguir el mismo orden para que el simulador crezca a la par y pueda visualizarla:
+
+1. **Definir el requisito** en este backlog antes de codificar.
+2. **Extender el contrato** `shared/api_state.schema.json`; las claves de demostración se marcan `preview_only`.
+3. **Implementar en el firmware** (`firmware/src/`), manteniendo buffers pequeños y sin asignación dinámica.
+4. **Espejar en el simulador** (`simulator/model.py`) añadiendo el estado y, si aplica, controles de escenario.
+5. **Probar**: `python3 -m unittest discover -s tests -v` (contrato + modelo + API) y `xmake` en `firmware/` para el build cruzado y su reporte RAM/IRAM/flash.
+6. **Documentar**: actualizar `README.md`, `firmware/README.md` y este vault.
+
+Cuando la política de decisión (umbral/histéresis) esté definida, extraerla como módulo C/C++ portable que compile tanto para Xtensa como para tests nativos en host, evitando duplicar la regla en Python.
 
 ## Prioridad 0 — Definir el comportamiento del sistema
 
@@ -66,7 +80,7 @@ Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya
 
 - [ ] Investigar y reducir consumo de IRAM antes de crecer el firmware: build observado usa 60.287 de 65.536 bytes (aprox. 92 %).
 - [ ] Definir umbrales máximos de RAM, IRAM, código en flash y LittleFS para CI/build local; fallar el build si se exceden.
-- [ ] Repetir `xmake server` tras cada cambio de firmware; el test nativo no mide RAM/IRAM, coste de Xtensa ni latencia real.
+- [ ] Repetir `xmake` en `firmware/` tras cada cambio de firmware; el test nativo no mide RAM/IRAM, coste de Xtensa ni latencia real.
 - [ ] Revisar el límite de concurrencia/tamaño del servidor y los buffers de respuesta cuando se amplíe la API.
 - [ ] Comprobar rollover de `millis()` usando aritmética unsigned en el firmware.
 - [ ] Medir tamaño y reserva de LittleFS frente a los archivos estáticos que se agreguen.
@@ -94,7 +108,7 @@ Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya
 - [ ] Mantener el simulador ligado a `127.0.0.1`; no usar `--host 0.0.0.0` en redes compartidas sin autenticación y controles de acceso.
 - [ ] Si se publican controles o datos fuera de localhost, especificar autenticación, autorización, validación, límites de tasa y política CORS/CSRF antes.
 - [ ] Revisar exposición del servidor ESP8266: actualmente la UI/API están en la LAN y no hay autenticación documentada.
-- [ ] Asegurar que `.env`, `src/credentials.h`, datos Wi-Fi y credenciales nunca se agreguen a Git ni a notas del vault.
+- [ ] Asegurar que `.env`, `firmware/src/credentials.h`, datos Wi-Fi y credenciales nunca se agreguen a Git ni a notas del vault.
 - [ ] Definir actualización OTA solo si se necesita; describir autenticación, verificación de imagen, recuperación y particiones antes de implementarla.
 
 ## Prioridad 3 — Mantenibilidad y entrega

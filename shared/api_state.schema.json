@@ -1,0 +1,224 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://redes-ii.local/schemas/api_state.schema.json",
+  "title": "GET /api/state contract",
+  "description": "Contract shared by the ESP8266 firmware (format_sensor_state in firmware/src/sensor.cpp) and the local simulator (simulator/model.py DeviceModel). Base keys must exist in both environments. Preview-only keys exist only in the simulator to exercise the dashboard and are never emitted by the firmware.",
+  "type": "object",
+  "required": [
+    "simulator",
+    "board",
+    "state",
+    "uptime_ms",
+    "wifi",
+    "filesystem",
+    "sensor",
+    "pins",
+    "limits",
+    "server"
+  ],
+  "properties": {
+    "simulator": {
+      "type": "boolean",
+      "description": "True when served by the local simulator, false when served by the NodeMCU firmware."
+    },
+    "board": {
+      "type": "string",
+      "const": "NodeMCU ESP8266"
+    },
+    "state": {
+      "type": "string",
+      "enum": ["running", "waiting_wifi", "halted_filesystem"],
+      "description": "Firmware boot/runtime state. waiting_wifi and halted_filesystem are terminal-ish states of the current firmware startup sequence."
+    },
+    "uptime_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "wifi": {
+      "type": "boolean",
+      "description": "STA link status. Firmware only reaches the running state with wifi true; the simulator can toggle it."
+    },
+    "filesystem": {
+      "type": "boolean",
+      "description": "LittleFS mount status. Firmware halts when false."
+    },
+    "sensor": {
+      "type": "object",
+      "required": ["valid", "distance_cm", "age_ms", "echo_timeout_us"],
+      "properties": {
+        "valid": {
+          "type": "boolean"
+        },
+        "distance_cm": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "Null when the echo timed out; never 0 for a timeout."
+        },
+        "age_ms": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "echo_timeout_us": {
+          "type": "integer",
+          "const": 30000
+        }
+      },
+      "additionalProperties": false
+    },
+    "pins": {
+      "type": "object",
+      "required": ["trigger_gpio", "echo_gpio", "trigger_label", "echo_label"],
+      "properties": {
+        "trigger_gpio": {
+          "type": "integer",
+          "const": 12
+        },
+        "echo_gpio": {
+          "type": "integer",
+          "const": 14
+        },
+        "trigger_label": {
+          "type": "string",
+          "const": "D6"
+        },
+        "echo_label": {
+          "type": "string",
+          "const": "D5"
+        }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": ["cpu_mhz", "flash_bytes", "dram_bytes", "iram_bytes"],
+      "properties": {
+        "cpu_mhz": {
+          "type": "integer",
+          "const": 80
+        },
+        "flash_bytes": {
+          "type": "integer",
+          "const": 4194304
+        },
+        "dram_bytes": {
+          "type": "integer",
+          "const": 80192
+        },
+        "iram_bytes": {
+          "type": "integer",
+          "const": 65536
+        }
+      },
+      "additionalProperties": false
+    },
+    "server": {
+      "type": "object",
+      "required": ["status", "host", "port", "base_url", "last_request", "routes"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["running", "degraded"]
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "base_url": {
+          "type": "string"
+        },
+        "bind_url": {
+          "type": "string",
+          "description": "Simulator only: actual bind address."
+        },
+        "virtual_url": {
+          "type": "string",
+          "description": "Simulator only: virtual board URL."
+        },
+        "last_request": {
+          "type": "string"
+        },
+        "routes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "controls": {
+      "type": "object",
+      "description": "PREVIEW ONLY (simulator). Mirror of the accepted POST /api/controls inputs. Never emitted by the firmware.",
+      "preview_only": true,
+      "properties": {
+        "distance_cm": {"type": "number"},
+        "echo_available": {"type": "boolean"},
+        "wifi_available": {"type": "boolean"},
+        "filesystem_mounts": {"type": "boolean"},
+        "sensor_min_cm": {"type": "number"},
+        "sensor_max_cm": {"type": "number"}
+      },
+      "additionalProperties": false
+    },
+    "alarm_system": {
+      "type": "object",
+      "description": "PREVIEW ONLY (simulator). Demonstration of the dashboard alarm UI. The physical alarm policy is undefined (see redes-ii-vault/funcionalidades-pendientes.md, Prioridad 0) and this block is not part of the firmware response.",
+      "preview_only": true,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
+        },
+        "arming_remaining_s": {"type": "number"},
+        "v_bus": {"type": "number"},
+        "v_bus_status": {
+          "type": "string",
+          "enum": ["normal", "warning", "alarm"]
+        },
+        "active_areas": {
+          "type": "array",
+          "items": {"type": "integer"}
+        },
+        "no_response_areas": {
+          "type": "array",
+          "items": {"type": "integer"}
+        },
+        "sectors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type": "integer"},
+              "name": {"type": "string"},
+              "node": {"type": "string"},
+              "has_panic": {"type": "boolean"},
+              "motion": {"type": "boolean"},
+              "active": {"type": "boolean"},
+              "no_response": {"type": "boolean"},
+              "projected": {"type": "boolean"},
+              "status": {
+                "type": "string",
+                "enum": ["normal", "motion", "alarm", "no_response"]
+              }
+            },
+            "required": ["id", "name", "node", "status"]
+          }
+        },
+        "recent_events": {
+          "type": "array",
+          "items": {"type": "object"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "logs": {
+      "type": "array",
+      "description": "PREVIEW ONLY (simulator). Ring buffer of simulator events.",
+      "preview_only": true,
+      "items": {"type": "string"}
+    }
+  }
+}

@@ -9,7 +9,13 @@ tags:
 
 ## Resumen
 
-La solución implementada permite observar el mismo dashboard con el ESP8266 o con un modelo local. La documentación del proyecto queda organizada en tres capas:
+La solución implementada permite observar el mismo dashboard con el ESP8266 o con un modelo local. El repositorio se organiza en dos capas de ejecución separadas por una barrera de flasheo, más un contrato compartido:
+
+1. `firmware/` es la **única capa que se flashea** en la NodeMCU ESP8266; compila para Xtensa LX106 con `lib/esp8266`.
+2. `simulator/` es la **capa de previsualización**: modelo determinista y servidor HTTP local (`127.0.0.1:8080`); no se flashea ni emula el Xtensa.
+3. `shared/api_state.schema.json` es el **contrato** del JSON de `GET /api/state`, con las claves base obligatorias y las claves de demostración marcadas `preview_only`.
+
+La documentación del proyecto queda organizada en tres niveles:
 
 1. `README.md` para el panorama operativo del repositorio.
 2. `Documentacion/Redes II - Servidor web - Informe del proyecto.md` para la fundamentación académica del sistema.
@@ -20,7 +26,9 @@ La solución implementada permite observar el mismo dashboard con el ESP8266 o c
 1. El firmware del ESP8266 mide el sensor y publica su estado por HTTP.
 2. El simulador de PC usa Python para presentar estados controlables de sensor, Wi-Fi, LittleFS y escenarios locales de interfaz de alarma.
 
-Ambos entornos comparten la interfaz y el contrato JSON base del dashboard, pero **no ejecutan el mismo código de aplicación**: el simulador no ejecuta el ELF ni mide tiempos, periféricos o uso de memoria del ESP8266. El simulador agrega `alarm_system` para probar la interfaz; esa extensión no forma parte de la respuesta del firmware y no define la política física de alarma. El build cruzado y sus límites de RAM/IRAM/flash siguen siendo validaciones obligatorias.
+Ambos entornos comparten la interfaz y el contrato JSON base del dashboard, pero **no ejecutan el mismo código de aplicación**: el simulador no ejecuta el ELF ni mide tiempos, periféricos o uso de memoria del ESP8266. El simulador agrega `alarm_system` para probar la interfaz; esa extensión está marcada `preview_only` en `shared/api_state.schema.json`, no forma parte de la respuesta del firmware y no define la política física de alarma. El build cruzado y sus límites de RAM/IRAM/flash siguen siendo validaciones obligatorias.
+
+El esquema `shared/api_state.schema.json` es la fuente de verdad del contrato y se valida en `tests/test_contract.py`: el snapshot del simulador debe cumplir las claves base (`board`, `state`, `wifi`, `filesystem`, `sensor`, `pins`, `limits`, `server`, `uptime_ms`, `simulator`). Las claves de demostración (`alarm_system`, `controls`, `logs`) existen solo en el simulador y el firmware no debe emitirlas.
 
 El backlog priorizado y el criterio de terminado están en [[funcionalidades-pendientes]]. No conviene presentar una placa distinta como simulación exacta del ESP8266: la meta de la herramienta local es previsualizar el comportamiento observable del dashboard y algunos escenarios del dispositivo.
 
@@ -28,26 +36,35 @@ El backlog priorizado y el criterio de terminado están en [[funcionalidades-pen
 
 ```mermaid
 flowchart TD
-    A["setup() en src/server.cpp"] --> B["Serial y GPIO"]
-    A --> C["LittleFS.begin()"]
-    A --> D["WiFi.config() / WiFi.begin()"]
-    A --> E["ESP8266WebServer sirve static/ desde LittleFS"]
-    F["loop()"] --> G["server.handleClient()"]
-    F --> H["Cada ~1 s: read_distance()"]
-    H --> I["Trigger D6 + pulseIn(Echo D5)"]
-    H --> J["Actualiza Serial y estado HTTP"]
+    subgraph FLASH["Capa 1 — firmware/ (única que se flashea)"]
+        A["setup() en firmware/src/server.cpp"] --> B["Serial y GPIO"]
+        A --> C["LittleFS.begin()"]
+        A --> D["WiFi.config() / WiFi.begin()"]
+        A --> E["ESP8266WebServer sirve static/ desde LittleFS"]
+        F["loop()"] --> G["server.handleClient()"]
+        F --> H["Cada ~1 s: read_distance()"]
+        H --> I["Trigger D6 + pulseIn(Echo D5)"]
+        H --> J["Actualiza Serial y estado HTTP"]
+    end
+    subgraph PREVIEW["Capa 2 — simulator/ (previsualización, no se flashea)"]
+        M["DeviceModel determinista"] --> S["HTTP 127.0.0.1:8080"]
+    end
     K["static/js/main.js"] --> L["GET /api/state cada 1 s"]
     L --> E
+    L --> S
+    C2["shared/api_state.schema.json"] -.contrato.-> E
+    C2 -.contrato.-> S
 ```
 
 | Área | Implementación actual |
 |---|---|
-| Arranque y coordinación | `src/server.cpp`: `setup()` y `loop()` |
+| Arranque y coordinación | `firmware/src/server.cpp`: `setup()` y `loop()` |
 | Sensor | `read_distance()` genera el pulso ultrasónico y mide el Echo con `pulseIn()` |
 | Red | Wi-Fi en modo estación con IP estática; servidor en puerto 80 |
 | Archivos | `ESP8266WebServer::serveStatic()` sirve el contenido de LittleFS generado desde `static/` |
 | Interfaz | `static/index.html`, `static/js/main.js` y `static/css/style.css`; dashboard de placa/sensor que consulta `/api/state` |
-| Compilación | `xmake.lua`; toolchain Xtensa LX106 y linker script de ESP8266 NodeMCU |
+| Contrato | `shared/api_state.schema.json`; validado por `tests/test_contract.py` |
+| Compilación | `firmware/xmake.lua`; toolchain Xtensa LX106 y linker script de ESP8266 NodeMCU |
 
 El dashboard consulta la distancia de firmware y diferencia timeout de una medición válida. El firmware aún no implementa umbral ni transición de alarma.
 
@@ -121,7 +138,8 @@ Los controles admitidos son `distance_cm` (finito, 2–400), `echo_available`, `
 ### Usar el dashboard desde la placa
 
 ```sh
-xmake server
+cd firmware
+xmake
 xmake flash -p /dev/ttyUSB0
 ```
 
@@ -167,7 +185,7 @@ El contrato `GET /api/state` ya alimenta la interfaz tanto en simulación como d
 
 1. **Unitarias nativas:** estado simulado, cadencia de un segundo, timeout, validación de controles y reinicio con reloj falso.
 2. **Integración nativa:** servidor local y contrato HTTP comprobados contra el mismo dashboard.
-3. **Compilación de placa:** `xmake server` verifica el build para Xtensa, genera LittleFS e imagen de flash combinada.
+3. **Compilación de placa:** `xmake` en `firmware/` verifica el build para Xtensa, genera LittleFS e imagen de flash combinada.
 4. **Presupuesto de placa:** observar el reporte RAM/IRAM/flash del build; tras añadir el endpoint web se midieron 29.728/80.192 bytes de RAM y 60.287/65.536 bytes de IRAM en el entorno inspeccionado. IRAM tiene poco margen y se debe volver a medir tras cada cambio. No usar estos valores como presupuesto universal para otra revisión/toolchain.
 5. **Prueba física final:** comprobar que el cableado use D6/D5, adaptar tensión de Echo, sensor, Wi-Fi y montaje de LittleFS. Ninguna prueba de PC certifica niveles eléctricos ni tiempos exactos.
 
@@ -183,9 +201,12 @@ Wokwi u otro simulador de circuitos puede servir como complemento visual cuando 
 
 ## Referencias del repositorio
 
-- `src/server.cpp`
+- `firmware/src/server.cpp`
+- `firmware/src/sensor.cpp`
 - `static/index.html`
 - `static/js/main.js`
-- `xmake.lua`
+- `firmware/xmake.lua`
+- `shared/api_state.schema.json`
+- `tests/test_contract.py`
 - `lib/esp8266/variants/nodemcu/pins_arduino.h`
 - `AGENTS.md`

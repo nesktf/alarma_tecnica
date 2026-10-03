@@ -9,18 +9,28 @@ set_targetdir("$(builddir)")
 -- ----------------------------------------------------------------------------
 toolchain("xtensa-lx106-elf")
     set_kind("standalone")
-    set_toolset("cc", "xtensa-lx106-elf-gcc")
-    set_toolset("cxx", "xtensa-lx106-elf-g++")
-    set_toolset("ld", "xtensa-lx106-elf-gcc")
-    set_toolset("ar", "xtensa-lx106-elf-ar")
-    set_toolset("as", "xtensa-lx106-elf-gcc")
-    set_toolset("strip", "xtensa-lx106-elf-strip")
-    set_toolset("objcopy", "xtensa-lx106-elf-objcopy")
-    set_toolset("size", "xtensa-lx106-elf-size")
+    -- Absolute tool paths: lib/esp8266 stays at the repository root while this
+    -- build file lives in firmware/. Resolved from this file's directory so the
+    -- project can be moved without breaking the cross-compilation setup.
+    local _bindir = path.join(os.scriptdir(), "..", "lib", "esp8266", "tools", "xtensa-lx106-elf", "bin")
+    local _abs = function(name)
+        local full = path.join(_bindir, name)
+        if not os.isfile(full) then
+            raise("xtensa toolchain missing: " .. full)
+        end
+        return full
+    end
+    set_toolset("cc", _abs("xtensa-lx106-elf-gcc"))
+    set_toolset("cxx", _abs("xtensa-lx106-elf-g++"))
+    set_toolset("ld", _abs("xtensa-lx106-elf-gcc"))
+    set_toolset("ar", _abs("xtensa-lx106-elf-ar"))
+    set_toolset("as", _abs("xtensa-lx106-elf-gcc"))
+    set_toolset("strip", _abs("xtensa-lx106-elf-strip"))
+    set_toolset("objcopy", _abs("xtensa-lx106-elf-objcopy"))
+    set_toolset("size", _abs("xtensa-lx106-elf-size"))
 
     on_load(function (toolchain)
-        local bindir = path.join(os.projectdir(), "lib/esp8266/tools/xtensa-lx106-elf/bin")
-        toolchain:add("runenvs", "PATH", bindir)
+        toolchain:add("runenvs", "PATH", _bindir)
     end)
 toolchain_end()
 
@@ -88,7 +98,7 @@ rule("esp8266.config")
             "-fdata-sections",
             "-fno-exceptions",
             "-U__STRICT_ANSI__",
-            "@" .. path.join(os.projectdir(), "lib/esp8266/tools/warnings/none-cxxflags"),
+            "@" .. path.join(os.projectdir(), "../lib/esp8266/tools/warnings/none-cxxflags"),
             {force = true}
         )
 
@@ -96,17 +106,17 @@ rule("esp8266.config")
         target:add("asflags", "-g", "-x", "assembler-with-cpp", "-mlongcalls", {force = true})
 
         target:add("includedirs",
-            "lib/esp8266/tools/xtensa-lx106-elf/include",
-            "lib/esp8266/tools/sdk/include",
-            "lib/esp8266/tools/sdk/lwip2/include",
-            "lib/esp8266/cores/esp8266",
-            "lib/esp8266/variants/nodemcu",
-            "lib/esp8266/libraries/ESP8266WebServer/src",
-            "lib/esp8266/libraries/ESP8266WebServer/src/detail",
-            "lib/esp8266/libraries/ESP8266WiFi/src",
-            "lib/esp8266/libraries/ESP8266WiFi/src/include",
-            "lib/esp8266/libraries/LittleFS/src",
-            "lib/esp8266/libraries/LittleFS/lib/littlefs",
+            "../lib/esp8266/tools/xtensa-lx106-elf/include",
+            "../lib/esp8266/tools/sdk/include",
+            "../lib/esp8266/tools/sdk/lwip2/include",
+            "../lib/esp8266/cores/esp8266",
+            "../lib/esp8266/variants/nodemcu",
+            "../lib/esp8266/libraries/ESP8266WebServer/src",
+            "../lib/esp8266/libraries/ESP8266WebServer/src/detail",
+            "../lib/esp8266/libraries/ESP8266WiFi/src",
+            "../lib/esp8266/libraries/ESP8266WiFi/src/include",
+            "../lib/esp8266/libraries/LittleFS/src",
+            "../lib/esp8266/libraries/LittleFS/lib/littlefs",
             "src",
             path.join(target:targetdir(), "generated")
         )
@@ -121,9 +131,9 @@ target("esp8266_core")
     set_targetdir("$(builddir)")
     add_rules("esp8266.config")
     add_files(
-        "lib/esp8266/cores/esp8266/**.c",
-        "lib/esp8266/cores/esp8266/**.cpp",
-        "lib/esp8266/cores/esp8266/**.S"
+        "../lib/esp8266/cores/esp8266/**.c",
+        "../lib/esp8266/cores/esp8266/**.cpp",
+        "../lib/esp8266/cores/esp8266/**.S"
     )
 target_end()
 
@@ -131,14 +141,14 @@ target("esp8266_wifi")
     set_kind("static")
     set_targetdir("$(builddir)")
     add_rules("esp8266.config")
-    add_files("lib/esp8266/libraries/ESP8266WiFi/src/**.cpp")
+    add_files("../lib/esp8266/libraries/ESP8266WiFi/src/**.cpp")
 target_end()
 
 target("esp8266_webserver")
     set_kind("static")
     set_targetdir("$(builddir)")
     add_rules("esp8266.config")
-    add_files("lib/esp8266/libraries/ESP8266WebServer/src/**.cpp")
+    add_files("../lib/esp8266/libraries/ESP8266WebServer/src/**.cpp")
 target_end()
 
 target("esp8266_littlefs")
@@ -146,8 +156,8 @@ target("esp8266_littlefs")
     set_targetdir("$(builddir)")
     add_rules("esp8266.config")
     add_files(
-        "lib/esp8266/libraries/LittleFS/src/**.c",
-        "lib/esp8266/libraries/LittleFS/src/**.cpp"
+        "../lib/esp8266/libraries/LittleFS/src/**.c",
+        "../lib/esp8266/libraries/LittleFS/src/**.cpp"
     )
 target_end()
 
@@ -163,8 +173,8 @@ target("server")
     add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
     add_linkdirs(
-        "lib/esp8266/tools/sdk/lib",
-        "lib/esp8266/tools/sdk/lib/NONOSDK22x_190703",
+        "../lib/esp8266/tools/sdk/lib",
+        "../lib/esp8266/tools/sdk/lib/NONOSDK22x_190703",
         "$(builddir)"
     )
 
@@ -199,7 +209,7 @@ target("server")
         os.mkdir(gendur)
 
         -- 1. Read .env file & generate credentials.h
-        local env_file = path.join(os.projectdir(), ".env")
+        local env_file = path.join(os.projectdir(), "../.env")
         local env_vars = {}
         if os.isfile(env_file) then
             local content = io.readfile(env_file)
@@ -257,6 +267,9 @@ target("server")
 
 #define WIFI_SSID %q
 #define WIFI_PSWD %q
+#ifndef WIFI_PASS
+#define WIFI_PASS WIFI_PSWD
+#endif
 #define SERVER_IP %s
 #define SERVER_GATEWAY %s
 #define SERVER_MASK %s
@@ -296,13 +309,13 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
     end)
 
     before_build(function (target)
-        local bindir = path.join(os.projectdir(), "lib/esp8266/tools/xtensa-lx106-elf/bin")
+        local bindir = path.join(os.projectdir(), "../lib/esp8266/tools/xtensa-lx106-elf/bin")
         local gcc = path.join(bindir, "xtensa-lx106-elf-gcc")
         local outdir = target:targetdir()
         os.mkdir(outdir)
 
         -- Preprocess linker scripts
-        local sdk_ld = path.join(os.projectdir(), "lib/esp8266/tools/sdk/ld")
+        local sdk_ld = path.join(os.projectdir(), "../lib/esp8266/tools/sdk/ld")
         local local_flash_ld = path.join(outdir, "local.eagle.flash.ld")
         local local_common_ld = path.join(outdir, "local.eagle.app.v6.common.ld")
 
@@ -329,11 +342,11 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
 
     after_build(function (target)
         local python = "python3"
-        local tools_dir = path.join(os.projectdir(), "lib/esp8266/tools")
+        local tools_dir = path.join(os.projectdir(), "../lib/esp8266/tools")
         local bin_dir = path.join(tools_dir, "xtensa-lx106-elf/bin")
         local elf_path = target:targetfile()
         local bin_path = path.join(target:targetdir(), "server.bin")
-        local eboot_path = path.join(os.projectdir(), "lib/esp8266/bootloaders/eboot/eboot.elf")
+        local eboot_path = path.join(os.projectdir(), "../lib/esp8266/bootloaders/eboot/eboot.elf")
 
         -- 1. Generate firmware .bin image
         print("Creating binary image: %s", bin_path)
@@ -349,9 +362,9 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
         })
 
         -- 2. Generate LittleFS .bin filesystem image
-        local mklittlefs_tool = path.join(tools_dir, "mklittlefs/mklittlefs")
+        local mklittlefs_tool = path.join("../lib/esp8266/tools", "mklittlefs/mklittlefs")
         local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
-        local static_dir = path.join(os.projectdir(), "static")
+        local static_dir = path.join(os.projectdir(), "../static")
         print("Creating LittleFS image: %s", fs_bin_path)
         os.execv(mklittlefs_tool, {
             "-c", static_dir,
@@ -407,7 +420,7 @@ task("flash")
         local baud = tostring(option.get("baud") or 115200)
         local flash_all = option.get("all")
 
-        local upload_tool = path.join(os.projectdir(), "lib/esp8266/tools/upload.py")
+        local upload_tool = path.join(os.projectdir(), "../lib/esp8266/tools/upload.py")
         local args = {upload_tool, "--chip", "esp8266"}
         if port and #port > 0 then
             table.insert(args, "--port")
@@ -457,7 +470,7 @@ task("flash_fs")
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
 
-        local upload_tool = path.join(os.projectdir(), "lib/esp8266/tools/upload.py")
+        local upload_tool = path.join(os.projectdir(), "../lib/esp8266/tools/upload.py")
         local args = {upload_tool, "--chip", "esp8266"}
         if port and #port > 0 then
             table.insert(args, "--port")
@@ -488,7 +501,7 @@ task("monitor")
         import("core.base.option")
         local port = option.get("port") or "/dev/ttyUSB0"
         local baud = tostring(option.get("baud") or 9600)
-        local miniterm = path.join(os.projectdir(), "lib/makeEspArduino/tools/miniterm.py")
+        local miniterm = path.join(os.projectdir(), "../lib/makeEspArduino/tools/miniterm.py")
         if os.isfile(miniterm) then
             os.execv("python3", {miniterm, "--exit-char", "3", "--rts=0", "--dtr=0", port, baud})
         else
