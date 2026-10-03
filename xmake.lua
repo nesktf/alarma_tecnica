@@ -388,6 +388,7 @@ target("server")
         local gw_formatted = parse_ip(raw_gw, "SERVER_GATEWAY") or "IPAddress(192, 168, 0, 1)"
         local mask_formatted = parse_ip(raw_mask, "SERVER_MASK") or "IPAddress(255, 255, 255, 0)"
 
+        local raw_ip_str = raw_ip and raw_ip:gsub('^["\']', ''):gsub('["\']$', ''):gsub("%s+", "") or "192.168.0.53"
         local header_content = string.format([[#ifndef ENV_H
 #define ENV_H
 
@@ -397,11 +398,12 @@ target("server")
 #define WIFI_PASS WIFI_PSWD
 #endif
 #define SERVER_IP %s
+#define SERVER_IP_STR %q
 #define SERVER_GATEWAY %s
 #define SERVER_MASK %s
 
 #endif // ENV_H
-]], wifi_ssid, wifi_pass, ip_formatted, gw_formatted, mask_formatted)
+]], wifi_ssid, wifi_pass, ip_formatted, raw_ip_str, gw_formatted, mask_formatted)
 
         local target_file = path.join(gendur, "credentials.h")
         io.writefile(target_file, header_content)

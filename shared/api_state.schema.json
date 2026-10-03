@@ -1,21 +1,22 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://redes-ii.local/schemas/api_state.schema.json",
-  "title": "GET /api/state contract",
-  "description": "Contract shared by the ESP8266 firmware (format_sensor_state in firmware/src/sensor.cpp) and the local simulator (simulator/model.py DeviceModel). Base keys must exist in both environments. Preview-only keys exist only in the simulator to exercise the dashboard and are never emitted by the firmware.",
-  "type": "object",
-  "required": [
-    "simulator",
-    "board",
-    "state",
-    "uptime_ms",
-    "wifi",
-    "filesystem",
-    "sensor",
-    "pins",
-    "limits",
-    "server"
-  ],
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": "https://redes-ii.local/schemas/api_state.schema.json",
+   "title": "GET /api/state contract",
+   "description": "Contract shared by the ESP8266 firmware (format_sensor_state in firmware/src/sensor.cpp) and the local simulator (simulator/model.py DeviceModel). Base keys must exist in both environments. Preview-only keys exist only in the simulator to exercise the dashboard and are never emitted by the firmware.",
+   "type": "object",
+   "required": [
+     "simulator",
+     "board",
+     "state",
+     "uptime_ms",
+     "wifi",
+     "filesystem",
+     "sensor",
+     "pins",
+     "limits",
+     "server",
+     "alarm_system"
+   ],
   "properties": {
     "simulator": {
       "type": "boolean",
@@ -165,8 +166,7 @@
     },
     "alarm_system": {
       "type": "object",
-      "description": "PREVIEW ONLY (simulator). Demonstration of the dashboard alarm UI. The physical alarm policy is undefined (see redes-ii-vault/funcionalidades-pendientes.md, Prioridad 0) and this block is not part of the firmware response.",
-      "preview_only": true,
+      "description": "Alarm system state. Reflects the current state of the alarm subsystem (when implemented in hardware) or demonstration state in simulator.",
       "properties": {
         "state": {
           "type": "string",

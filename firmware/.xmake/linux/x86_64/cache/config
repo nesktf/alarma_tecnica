@@ -1,0 +1,10 @@
+{
+    options = {
+        toolchain = "xtensa-lx106-elf",
+        plat = "linux"
+    },
+    recheck = false,
+    mtimes = {
+        ["xmake.lua"] = 1791065693
+    }
+}

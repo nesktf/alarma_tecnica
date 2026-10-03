@@ -70,14 +70,15 @@ int format_sensor_state(char* buff, size_t sz) {
     "{\"id\":4,\"name\":\"Vicedirección\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
     "{\"id\":5,\"name\":\"Informática\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR\"}"
     "],"
-    "\"recent_events\":[]}}",
+    "\"recent_events\":[],\"server\":\"%s\"}}",
     filesystem_ready ? "true" : "false",
     (unsigned long)millis(),
     measurement_valid ? "true" : "false",
     distance,
     measurement_valid ? (long)(millis() - last_measurement) : -1L,
     (unsigned)TRIG_PIN,
-    (unsigned)ECHO_PIN
+    (unsigned)ECHO_PIN,
+    SERVER_IP_STR
   );
 }
 

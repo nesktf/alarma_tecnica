@@ -1,0 +1,16 @@
+{
+    cmdlines = {
+        "xmake ",
+        "xmake ",
+        "xmake ",
+        "xmake ",
+        "xmake -v",
+        "xmake ",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake ",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake ",
+        "xmake "
+    }
+}

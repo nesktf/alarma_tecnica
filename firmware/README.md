@@ -50,7 +50,7 @@ nativo del simulador **no** mide los costes del ESP8266.
 
 `GET /api/state` responde el JSON definido en `../shared/api_state.schema.json`.
 Las claves base (`board`, `state`, `wifi`, `filesystem`, `sensor`, `pins`,
-`limits`, `server`, `uptime_ms`, `simulator`) son obligatorias en firmware y
-simulador. El firmware **no** emite las claves de demostración
-(`alarm_system`, `controls`, `logs`): son exclusivas del simulador y están
-marcadas `preview_only` en el esquema.
+`limits`, `server`, `alarm_system`, `uptime_ms`, `simulator`) son obligatorias en
+firmware y simulador. El firmware emite `alarm_system` con el estado actual del
+sistema de alarma. Las claves `controls` y `logs` son exclusivas del simulador y
+están marcadas `preview_only` en el esquema.

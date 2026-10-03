@@ -42,5 +42,5 @@ xmake
 
 - El simulador escucha por defecto solo en `127.0.0.1`.
 - La interfaz y el estado deben mantenerse compatibles entre firmware y simulador; el esquema `shared/api_state.schema.json` es la fuente de verdad y se valida en `tests/test_contract.py`.
-- Las claves de demostración (`alarm_system`, `controls`, `logs`) son `preview_only`: las emite solo el simulador para ejercitar el dashboard; el firmware no las incluye.
+- Las claves `controls` y `logs` son `preview_only`: las emite solo el simulador para ejercitar el dashboard; el firmware no las incluye. `alarm_system` está en el contrato base y lo emiten ambos.
 - No ejecutar `xmake flash` como parte de pruebas automatizadas ni afirmar que una prueba local valida hardware real.

@@ -130,7 +130,7 @@ class ApiContractTests(unittest.TestCase):
             key for key, value in schema["properties"].items()
             if isinstance(value, dict) and value.get("preview_only")
         ]
-        self.assertEqual(preview_keys, ["controls", "alarm_system", "logs"])
+        self.assertEqual(preview_keys, ["controls", "logs"])
         snapshot = self.device.snapshot()
         for key in preview_keys:
             self.assertIn(key, snapshot, f"Preview key '{key}' missing from simulator snapshot")

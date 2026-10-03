@@ -1,0 +1,71 @@
+{
+    find_program_avr_arch_x86_64_plat_linux_checktoolcxx = {
+        ["avr-g++"] = false
+    },
+    ["lib.detect.has_flags"] = {
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++__cxx___-fPIC"] = true,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++__cxx_cxflags__-Wno-gnu-line-marker -Werror"] = true,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc__cc___-fPIC"] = false,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc__cc_cxflags__-Wno-gnu-line-marker -Werror"] = true,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc__as_cxflags__-MMD -MF"] = true,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++__cxx_cxflags__-MMD -MF"] = true,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc__cc_cxflags__-MMD -MF"] = false,
+        ["linux_x86_64_/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc__as___-fPIC"] = false
+    },
+    ["find_program_xtensa-lx106-elf_arch_x86_64_plat_linux_checktoolas"] = {
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc"] = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc"
+    },
+    find_program_avr_arch_x86_64_plat_linux_checktoolas = {
+        ["avr-gcc"] = false
+    },
+    ["find_program_xtensa-lx106-elf_arch_x86_64_plat_linux_checktoolcxx"] = {
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++"] = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++"
+    },
+    find_program_avr_arch_x86_64_plat_linux_checktoolcc = {
+        ["avr-gcc"] = false
+    },
+    ["core.tools.gcc.has_cflags"] = {
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc_"] = { },
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++_"] = {
+            ["-print-search-dirs"] = true,
+            ["--help"] = true,
+            ["-time"] = true,
+            ["--version"] = true,
+            ["-shared"] = true,
+            ["-save-temps"] = true,
+            ["-print-libgcc-file-name"] = true,
+            ["-print-multi-lib"] = true,
+            ["-Xlinker"] = true,
+            ["-x"] = true,
+            ["-print-sysroot-headers-suffix"] = true,
+            ["-Xpreprocessor"] = true,
+            ["-c"] = true,
+            ["-B"] = true,
+            ["-pie"] = true,
+            ["-dumpspecs"] = true,
+            ["--param"] = true,
+            ["-no-canonical-prefixes"] = true,
+            ["-print-multiarch"] = true,
+            ["-Xassembler"] = true,
+            ["--target-help"] = true,
+            ["-v"] = true,
+            ["-pass-exit-codes"] = true,
+            ["-o"] = true,
+            ["-print-multi-os-directory"] = true,
+            ["-pipe"] = true,
+            ["-print-sysroot"] = true,
+            ["-dumpversion"] = true,
+            ["-print-multi-directory"] = true,
+            ["-E"] = true,
+            ["-S"] = true,
+            ["-dumpmachine"] = true
+        }
+    },
+    ["find_program_xtensa-lx106-elf_arch_x86_64_plat_linux_checktoolcc"] = {
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc"] = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc"
+    },
+    find_program = {
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++"] = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
+        ["/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc"] = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc"
+    }
+}

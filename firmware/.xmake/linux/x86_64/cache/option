@@ -1,0 +1,70 @@
+{
+    baud = {
+        default = "",
+        __scriptdir = "/home/chanchito/proyectos/redes-ii",
+        description = "Upload baud rate (e.g. 115200, 57600)",
+        __sourceinfo_default = {
+            [""] = {
+                line = 101,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        },
+        __sourceinfo_description = {
+            ["Upload baud rate (e.g. 115200, 57600)"] = {
+                line = 102,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        }
+    },
+    board = {
+        default = "nodemcu",
+        __scriptdir = "/home/chanchito/proyectos/redes-ii",
+        description = "Target ESP8266 board (e.g. nodemcu, generic)",
+        __sourceinfo_default = {
+            nodemcu = {
+                line = 91,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        },
+        __sourceinfo_description = {
+            ["Target ESP8266 board (e.g. nodemcu, generic)"] = {
+                line = 92,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        }
+    },
+    nano_mcu = {
+        default = "atmega328p",
+        __scriptdir = "/home/chanchito/proyectos/redes-ii",
+        description = "Microcontroller for Arduino Nano (e.g. atmega328p, atmega168)",
+        __sourceinfo_default = {
+            atmega328p = {
+                line = 106,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        },
+        __sourceinfo_description = {
+            ["Microcontroller for Arduino Nano (e.g. atmega328p, atmega168)"] = {
+                line = 107,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        }
+    },
+    port = {
+        default = "",
+        __scriptdir = "/home/chanchito/proyectos/redes-ii",
+        description = "Serial port for flashing/monitoring (e.g. /dev/ttyUSB0)",
+        __sourceinfo_default = {
+            [""] = {
+                line = 96,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        },
+        __sourceinfo_description = {
+            ["Serial port for flashing/monitoring (e.g. /dev/ttyUSB0)"] = {
+                line = 97,
+                file = "@projectdir(redes-ii)/xmake.lua"
+            }
+        }
+    }
+}
