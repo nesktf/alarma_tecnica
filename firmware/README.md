@@ -6,13 +6,13 @@ NodeMCU ESP8266**. Todo lo demás del repositorio (`simulator/`, `static/`,
 
 ## Contenido
 
-- `src/server.cpp`: `setup()`/`loop()`, arranque (LittleFS → Wi-Fi → servidor),
+- `server.cpp`: `setup()`/`loop()`, arranque (LittleFS → Wi-Fi → servidor),
   LED de estado y `GET /api/state`.
-- `src/sensor.cpp`, `src/sensor.hpp`: muestreo ultrasónico cada segundo
+- `sensor.cpp`, `sensor.hpp`: muestreo ultrasónico cada segundo
   (TRIG D6/GPIO12, ECHO D5/GPIO14, timeout 30 ms) y el formateador del
   contrato JSON de estado.
 - `../xmake.lua` (raíz del repositorio): único archivo de build. Compila para
-  Xtensa LX106 con el toolchain y SDK de `lib/esp8266`. No existe `firmware/xmake.lua`.
+  Xtensa LX106 con el toolchain y SDK de `firmware/lib/esp8266`. No existe `firmware/xmake.lua`.
 
 ## Credenciales
 
@@ -52,9 +52,11 @@ nativo del simulador **no** mide los costes del ESP8266.
 `GET /api/state` responde el JSON definido en `../shared/api_state.schema.json`.
 Las claves base (`board`, `state`, `wifi`, `filesystem`, `sensor`, `pins`,
 `limits`, `server`, `alarm_system`, `uptime_ms`, `simulator`) son obligatorias en
-firmware y simulador. El firmware emite `alarm_system` con el estado actual del
-sistema de alarma. Las claves `controls` y `logs` son exclusivas del simulador y
-están marcadas `preview_only` en el esquema.
+firmware y simulador. El firmware emite `alarm_system` con valores iniciales fijos;
+no hay todavía lógica física de alarma ni integración de sensores PIR. El
+simulador ofrece escenarios de demostración para la interfaz, no una política
+física aprobada. `controls` y `logs` son exclusivas del simulador y están
+marcadas `preview_only` en el esquema.
 
 ## Refactorización xmake.lua — 2026-10-04
 

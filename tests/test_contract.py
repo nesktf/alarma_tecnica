@@ -2,11 +2,13 @@
 
 The schema at shared/api_state.schema.json is the single source of truth for the
 JSON served by GET /api/state in both the ESP8266 firmware (format_sensor_state
-in firmware/src/sensor.cpp) and the local simulator (simulator/model.py).
+in firmware/sensor.cpp) and the local simulator (simulator/model.py).
 
-Base keys are validated strictly. Preview-only keys (controls, alarm_system,
-logs) exist only in the simulator and are checked for presence/type, never for
-firmware parity: the firmware must not emit them.
+Base keys are validated strictly. Preview-only keys (controls and logs) exist
+only in the simulator and are checked for presence/type, never for firmware
+parity: the firmware must not emit them. alarm_system is a required base key
+emitted by both environments; its firmware value is currently a fixed
+placeholder, not a functional alarm policy.
 """
 
 from __future__ import annotations

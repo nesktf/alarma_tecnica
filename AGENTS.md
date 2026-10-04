@@ -6,10 +6,10 @@ El repositorio es un monorepo con dos capas separadas por una barrera de flasheo
 
 - `firmware/`: **única capa que se flashea** en la NodeMCU ESP8266. `firmware/server.cpp` inicializa LittleFS/Wi-Fi, mide el sensor ultrasónico y sirve `/api/state` junto con los archivos web; `firmware/sensor.cpp` contiene el muestreo y el formateador del contrato. El build cruzado se controla desde `xmake.lua` en la **raíz** del repositorio (no existe `firmware/xmake.lua`).
 - `simulator/`: modelo local determinista de la placa y servidor HTTP de desarrollo (`127.0.0.1:8080`). **No** es un emulador Xtensa, **no** se flashea y no debe incorporarse al firmware.
-- `shared/api_state.schema.json`: contrato del JSON de `GET /api/state`, con las claves base obligatorias y las claves de demostración marcadas `preview_only`.
+- `shared/api_state.schema.json`: contrato del JSON de `GET /api/state`. `alarm_system` es una clave base obligatoria en ambos entornos; `controls` y `logs` son extensiones del simulador marcadas `preview_only`.
 - `static/`: interfaz compartida entre el ESP8266 y el simulador; también se empaqueta en la imagen LittleFS.
 - `tests/`: pruebas nativas del modelo (`test_simulator.py`), de la API HTTP y de contrato (`test_contract.py`).
-- `lib/esp8266/`: core Arduino ESP8266, toolchain y bibliotecas incorporadas; evitar cambios allí salvo que sean necesarios.
+- `firmware/lib/esp8266/`: core Arduino ESP8266, toolchain y bibliotecas incorporadas; evitar cambios allí salvo que sean necesarios.
 - `redes-ii-vault/`: documentación de arquitectura y operación para Obsidian.
 - `redes-ii-vault/funcionalidades-pendientes.md`: backlog técnico priorizado y criterios de terminado.
 
@@ -43,7 +43,7 @@ No es necesario conectar una placa para ejecutar el simulador. No ejecutar `xmak
 
 La interfaz consulta `GET /api/state`. El firmware y el servidor de simulación deben conservar el mismo contrato JSON de estado, lectura del sensor, conectividad, uptime, pines y perfil de la placa, definido en `shared/api_state.schema.json` y validado por `tests/test_contract.py`.
 
-Los controles `POST /api/controls` existen solo en el simulador; nunca deben aceptar escritura arbitraria desde el firmware. Las claves `alarm_system`, `controls` y `logs` son `preview_only`: el simulador las emite para ejercitar el dashboard, el firmware **no** las incluye.
+Los controles `POST /api/controls` existen solo en el simulador; nunca deben aceptar escritura arbitraria desde el firmware. `alarm_system` es parte del contrato base y lo emiten tanto el simulador como el firmware. En firmware sus valores actuales son un estado inicial fijo: no representan una alarma física funcional ni una lectura de sensores PIR. El simulador agrega escenarios de demostración para probar la interfaz; sus umbrales, transiciones y estados no definen la política física. `controls` y `logs` son `preview_only` y solo los emite el simulador.
 
 El simulador escucha solo en `127.0.0.1` por defecto. No exponerlo en una red compartida sin añadir autenticación y controles de acceso.
 
@@ -53,9 +53,9 @@ Para cada funcionalidad nueva del sistema real, seguir el mismo orden para que e
 
 1. **Definir el requisito** en `redes-ii-vault/funcionalidades-pendientes.md` antes de codificar (especialmente la política de alarma, hoy pendiente en Prioridad 0).
 2. **Extender el contrato** `shared/api_state.schema.json` con las claves nuevas; las de demostración se marcan `preview_only`.
-3. **Implementar en el firmware** (`firmware/src/`), manteniendo buffers pequeños y sin asignación dinámica.
+3. **Implementar en el firmware** (`firmware/`), manteniendo buffers pequeños y sin asignación dinámica.
 4. **Espejar en el simulador** (`simulator/model.py`) añadiendo el estado y, si aplica, controles de escenario bajo `simulator/scenarios/`.
-5. **Probar**: `python3 -m unittest discover -s tests -v` (contrato + modelo + API) y `xmake` en `firmware/` para el build cruzado y su reporte RAM/IRAM/flash.
+5. **Probar**: `python3 -m unittest discover -s tests -v` (contrato + modelo + API) y, desde la raíz, `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake` para el build cruzado y su reporte RAM/IRAM/flash.
 6. **Documentar**: actualizar `README.md`, `firmware/README.md` y el vault.
 
 Cuando la política de decisión (umbral/histéresis) esté definida, extraerla como módulo C/C++ portable que compile tanto para Xtensa como para tests nativos en host, evitando duplicar la regla en Python.
@@ -72,7 +72,7 @@ Cuando la política de decisión (umbral/histéresis) esté definida, extraerla 
 ## Configuración y seguridad
 
 - Las credenciales se generan desde `.env` al compilar; nunca copiar secretos al vault, tests ni salidas de diagnóstico compartidas.
-- `firmware/src/credentials.h` es generado y está ignorado por Git. No tratarlo como fuente mantenida a mano.
+- `build/generated/credentials.h` es generado y está ignorado por Git. No tratarlo como fuente mantenida a mano.
 - El directorio `redes-ii-vault/.trash/` es contenido del usuario; no limpiarlo ni reorganizarlo incidentalmente.
 
 ## Descubrimiento de skills y MCP

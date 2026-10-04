@@ -1,8 +1,10 @@
 # Plan: Corregir divergencia firmware/contrato
 
+> **Estado: implementado.** Este documento conserva el diagnóstico previo al cambio. La decisión vigente es: `alarm_system` forma parte del contrato base y ambos entornos lo emiten; el firmware usa valores iniciales fijos, mientras la política física sigue pendiente. Solo `controls` y `logs` son `preview_only`. Para el estado actual, consultar `shared/api_state.schema.json`, `AGENTS.md` y la documentación de arquitectura.
+
 ## Contexto
 
-El simulador es el reflejo del comportamiento del NodeMCU real. La clave `alarm_system` debe ser una clave base que ambos emitan (no `preview_only`). El firmware actualmente no emite la clave `server` que el schema marca como requerida.
+El simulador reproduce el contrato observable para desarrollar el dashboard, pero no es una emulación del comportamiento físico del NodeMCU. La clave `alarm_system` se promueve a clave base para que ambos entornos la emitan; esto no significa que el firmware implemente la política física. En el momento de redactar este plan, el firmware tampoco emitía la clave `server` requerida por el esquema.
 
 ## Estado actual
 
@@ -31,7 +33,7 @@ Agregar al final del JSON:
 ```
 
 La IP es **estática**, definida en `.env` como `SERVER_IP="192.168.0.53"` y generada en
-`firmware/build/generated/credentials.h` como `IPAddress(192, 168, 0, 53)`.
+`build/generated/credentials.h` como `IPAddress(192, 168, 0, 53)`.
 
 Para emitirla como string en el formatter sin asignación dinámica, se agrega una macro
 `SERVER_IP_STR` en el script de generación de `credentials.h`:
@@ -82,7 +84,7 @@ schema → sensor.cpp (server key) → server.cpp (buffer) → tests → docs
 
 Verificación después de cada paso: `python3 -m unittest discover -s tests -v` (24/24 OK)
 
-Final: `xmake` en `firmware/` para confirmar build cruzado.
+Final: desde la raíz, `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake` para confirmar el build cruzado.
 
 ## Fecha
 

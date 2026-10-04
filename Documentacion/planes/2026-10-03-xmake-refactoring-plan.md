@@ -6,6 +6,8 @@ tags: [xmake, build-system, refactoring, firmware]
 
 # Plan de refactorización de xmake.lua
 
+> **Estado: ejecutado y actualizado después del plan.** El único `xmake.lua` está en la raíz del repositorio; todas las configuraciones y builds deben invocarse desde allí. Este plan conserva el alcance inicial, pero la implementación final también corrigió rutas, generación de credenciales/build info, detección de AVR y target predeterminado. Ver `firmware/README.md` y la sección de refactorización en el vault para las decisiones vigentes.
+
 ## Objetivo
 Mejorar la estructura, legibilidad y mantenibilidad del archivo `xmake.lua` sin cambiar su funcionalidad.
 
@@ -56,9 +58,9 @@ El archivo `xmake.lua` actual tiene 714 líneas y contiene:
 
 ## Verificación
 Después de los cambios:
-1. `cd firmware && xmake f -p linux --toolchain=xtensa-lx106-elf && xmake build server` - build exitoso
+1. Desde la raíz: `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake build server` - build exitoso
 2. `python3 -m unittest discover -s tests -v` - 24 tests pasan
-3. Verificar que `server.bin`, `server.elf`, `littlefs.bin` se generan correctamente
+3. Verificar que `build/server.bin`, `build/server.elf` y `build/littlefs.bin` se generan correctamente
 4. Verificar que `credentials.h` se genera con `SERVER_IP_STR`
 
 ## Archivos afectados
@@ -66,8 +68,8 @@ Después de los cambios:
 - `xmake.lua.backup` - backup automático previo a cambios
 
 ## Pruebas de regresión
-- Build completo: `xmake` (debe compilar todos los targets sin errores)
-- Build server: `xmake build server` 
+- Build completo: `xmake` desde la raíz del repositorio
+- Build server: `xmake build server` desde la raíz del repositorio
 - Tests: `python3 -m unittest discover -s tests -v` (24 tests)
 - Verificar archivos generados: `server.bin`, `server.elf`, `littlefs.bin`, `credentials.h`
 

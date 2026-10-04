@@ -1,17 +1,17 @@
-# Plan de migración a 2 capas — estado al 2026-10-03
+# Plan de migración a 2 capas — decisiones vigentes al 2026-10-04
 
 ## Objetivo
 Estructurar el proyecto en dos capas principales: firmware (único que se flashea) y simulador (previsualización), con un contrato compartido que permita crecerlos en paralelo.
 
 ## Decisiones tomadas
 1. Monorepo: capas `firmware/` + `simulator/` + `shared/`.
-2. `lib/esp8266` permanece en la raíz; el build references con `../`.
+2. El core, toolchain y bibliotecas ESP8266 residen en `firmware/lib/esp8266`.
 3. Lógica de alarma portable: diferida hasta definir Prioridad 0 (umbral/histéresis).
-4. Campos de demostración (`alarm_system`, `controls`, `logs`) marcados `preview_only` en el esquema (opción B, menos churn).
+4. `alarm_system` es una clave base obligatoria emitida por firmware y simulador. El valor del firmware es un estado inicial fijo, no una implementación de alarma física. Los escenarios de alarma del simulador son demostrativos y no determinan la política física. Solo `controls` y `logs` están marcados `preview_only`.
 
 ## Cambios aplicados
-- `git mv src firmware/src`, `git mv xmake.lua firmware/xmake.lua`.
-- Rutas en `firmware/xmake.lua` reenrutadas a `../lib`, `../static`, `../.env`; toolchain con rutas absolutas.
+- El firmware y `xmake.lua` se reubicaron posteriormente: las fuentes están en `firmware/` y el único archivo de build está en la raíz.
+- El submódulo ESP8266 se trasladó a `firmware/lib/esp8266`; `static/` y `.env` permanecen en la raíz.
 - `set_defaultplat("cross")` -> `set_defaultplat("linux")` (xmake 3.1.1 no resuelve toolchain con cross).
 - Generador de `credentials.h` emite `WIFI_PSWD` + alias `WIFI_PASS`.
 - Creados `shared/api_state.schema.json` y `tests/test_contract.py`.
@@ -21,6 +21,16 @@ Estructurar el proyecto en dos capas principales: firmware (único que se flashe
 - `python3 -m unittest discover -s tests`: 24 tests OK.
 - `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake`: build ok, RAM 37%, IRAM 91%, flash 28%.
 - Simulador responde en `127.0.0.1:8080` con el nuevo esquema.
+
+## Aclaración de contrato: alarma
+
+`alarm_system` ya no es una extensión exclusiva del simulador: es obligatoria
+en el contrato compartido y aparece en las respuestas de ambos entornos. El
+firmware emite valores iniciales fijos para mantener esa forma de respuesta,
+pero todavía no calcula estados a partir de sensores de alarma ni implementa
+umbrales, histéresis o una política física. El simulador permite explorar
+estados y eventos de interfaz, que siguen siendo demostrativos. La lógica
+portable queda pendiente hasta que se acuerde el requisito físico.
 
 ## Próximos pasos (pendientes de confirmación)
 - Protocolo serie central->NodeMCU (baud rate, formato trama, campos por sector).
