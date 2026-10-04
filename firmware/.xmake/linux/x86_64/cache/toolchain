@@ -1,44 +1,164 @@
 {
+    tool_target_esp8266_littlefs_linux_x86_64_cc = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gcc"
+    },
+    tool_target_esp8266_core_linux_x86_64_cc = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gcc"
+    },
+    tool_target_server_linux_x86_64_ld = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
+        toolchain_info = {
+            arch = "x86_64",
+            name = "xtensa-lx106-elf",
+            plat = "linux",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gcc"
+    },
+    tool_target_esp8266_webserver_linux_x86_64_cxx = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gxx"
+    },
     tool_platform_linux_x86_64_cxx = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
         toolchain_info = {
             name = "xtensa-lx106-elf",
+            plat = "linux",
             arch = "x86_64",
-            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux",
-            plat = "linux"
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
         },
+        toolname = "gxx"
+    },
+    tool_target_esp8266_littlefs_linux_x86_64_ar = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-ar",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "ar"
+    },
+    tool_target_esp8266_wifi_linux_x86_64_ar = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-ar",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "ar"
+    },
+    tool_target_server_linux_x86_64_cxx = {
         program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gxx"
+    },
+    tool_target_esp8266_core_linux_x86_64_cxx = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
         toolname = "gxx"
     },
     ["xtensa-lx106-elf_arch_x86_64_plat_linux"] = {
+        arch = "x86_64",
         __global = true,
         __checked = true,
-        arch = "x86_64",
         plat = "linux"
+    },
+    tool_target_esp8266_webserver_linux_x86_64_ar = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-ar",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "ar"
+    },
+    tool_target_esp8266_core_linux_x86_64_as = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gcc"
     },
     tool_platform_linux_x86_64_cc = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
         toolchain_info = {
             name = "xtensa-lx106-elf",
+            plat = "linux",
             arch = "x86_64",
-            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux",
-            plat = "linux"
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
         },
-        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
         toolname = "gcc"
+    },
+    tool_target_esp8266_littlefs_linux_x86_64_cxx = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "gxx"
     },
     avr_arch_x86_64_plat_linux = {
+        arch = "x86_64",
         __global = true,
         __checked = true,
-        arch = "x86_64",
         plat = "linux"
     },
-    tool_platform_linux_x86_64_as = {
+    tool_target_esp8266_wifi_linux_x86_64_cxx = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-g++",
         toolchain_info = {
-            name = "xtensa-lx106-elf",
             arch = "x86_64",
-            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux",
-            plat = "linux"
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
         },
-        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-gcc",
-        toolname = "gcc"
+        toolname = "gxx"
+    },
+    tool_target_esp8266_core_linux_x86_64_ar = {
+        program = "/home/chanchito/proyectos/redes-ii/firmware/lib/esp8266/tools/xtensa-lx106-elf/bin/xtensa-lx106-elf-ar",
+        toolchain_info = {
+            arch = "x86_64",
+            plat = "linux",
+            name = "xtensa-lx106-elf",
+            cachekey = "xtensa-lx106-elf_arch_x86_64_plat_linux"
+        },
+        toolname = "ar"
     }
 }

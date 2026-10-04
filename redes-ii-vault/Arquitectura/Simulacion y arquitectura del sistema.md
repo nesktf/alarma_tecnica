@@ -210,3 +210,35 @@ Wokwi u otro simulador de circuitos puede servir como complemento visual cuando 
 - `tests/test_contract.py`
 - `lib/esp8266/variants/nodemcu/pins_arduino.h`
 - `AGENTS.md`
+
+## Refactorización xmake.lua — 2026-10-04
+
+El archivo `xmake.lua` (único, en la raíz del repositorio) fue auditado y refactorizado. No existe ni debe existir un `firmware/xmake.lua` separado.
+
+### Cambios aplicados
+
+| # | Cambio | Motivo |
+|---|--------|--------|
+| 1 | `set_defaultplat("linux")` | xmake 3.1.1 no resuelve `cross` sin flags explícitos |
+| 2 | `local pdir = os.projectdir()` al inicio | Variable de módulo única; reemplaza todos los `os.scriptdir()` y rutas relativas |
+| 3 | `includedirs` anclados con `path.join(pdir, ...)` | Invariantes al directorio de invocación |
+| 4 | Guard `.env` ausente en `before_build` | Mensaje de error accionable antes de fallar |
+| 5 | `credentials.h` movido a `before_build` | Cambios en `.env` ya no requieren `xmake f` |
+| 6 | `buildinfo.cpp` regenerado en cada build | Fecha y hora del build siempre actuales |
+| 7 | Sort descendente de candidates `avr-gcc` | Usa la versión más alta instalada |
+| 8 | `node_station` con `set_default(false)` | Evita compilar AVR con toolchain ESP8266 activo |
+
+### Flujos de build canónicos
+
+```sh
+# ESP8266 (predeterminado) — desde la raíz
+xmake f -p linux --toolchain=xtensa-lx106-elf && xmake
+
+# Arduino Nano (explícito) — desde la raíz
+xmake f -p linux --toolchain=avr && xmake build node_station
+```
+
+### Verificación post-refactorización (2026-10-04)
+
+- `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake build server`: RAM 37%, IRAM 91%, flash 28% ✓
+- `python3 -m unittest discover -s tests -v`: 24/24 tests OK ✓

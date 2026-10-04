@@ -1,8 +1,9 @@
 set_project("alarma_tecnica")
 set_version("1.0.0")
 
-set_defaultplat("cross")
+set_defaultplat("linux") -- xmake 3.1.1 no resuelve cross sin flags; linux permite --toolchain=xtensa-lx106-elf
 set_targetdir("$(builddir)")
+local pdir = os.projectdir()
 
 -- ----------------------------------------------------------------------------
 -- Toolchains: Xtensa LX106 ELF (ESP8266) & AVR GCC (Arduino Nano)
@@ -12,7 +13,7 @@ toolchain("xtensa-lx106-elf")
     -- Absolute tool paths: lib/esp8266 stays at the repository root while this
     -- build file lives in firmware/. Resolved from this file's directory so the
     -- project can be moved without breaking the cross-compilation setup.
-    local _bindir = path.join(os.scriptdir(), "firmware/lib", "esp8266", "tools", "xtensa-lx106-elf", "bin")
+    local _bindir = path.join(pdir, "firmware/lib", "esp8266", "tools", "xtensa-lx106-elf", "bin")
     local _abs = function(name)
         local full = path.join(_bindir, name)
         if not os.isfile(full) then
@@ -59,6 +60,8 @@ toolchain("avr")
             for _, base in ipairs(candidates) do
                 if os.isdir(base) then
                     local match = os.files(path.join(base, "**/bin/avr-gcc"))
+                        -- Take the highest version found, not the first
+                        table.sort(match, function(a, b) return a > b end)
                     if match and #match > 0 then
                         bindir = path.directory(match[1])
                         break
@@ -151,7 +154,7 @@ rule("esp8266.config")
             "-fdata-sections",
             "-fno-exceptions",
             "-U__STRICT_ANSI__",
-            "@" .. path.join(os.projectdir(), "firmware/lib/esp8266/tools/warnings/none-cxxflags"),
+            "@" .. path.join(pdir, "firmware/lib/esp8266/tools/warnings/none-cxxflags"),
             {force = true}
         )
 
@@ -159,18 +162,18 @@ rule("esp8266.config")
         target:add("asflags", "-g", "-x", "assembler-with-cpp", "-mlongcalls", {force = true})
 
         target:add("includedirs",
-            "firmware/lib/esp8266/tools/xtensa-lx106-elf/include",
-            "firmware/lib/esp8266/tools/sdk/include",
-            "firmware/lib/esp8266/tools/sdk/lwip2/include",
-            "firmware/lib/esp8266/cores/esp8266",
-            "firmware/lib/esp8266/variants/nodemcu",
-            "firmware/lib/esp8266/libraries/ESP8266WebServer/src",
-            "firmware/lib/esp8266/libraries/ESP8266WebServer/src/detail",
-            "firmware/lib/esp8266/libraries/ESP8266WiFi/src",
-            "firmware/lib/esp8266/libraries/ESP8266WiFi/src/include",
-            "firmware/lib/esp8266/libraries/LittleFS/src",
-            "firmware/lib/esp8266/libraries/LittleFS/lib/littlefs",
-            "firmware",
+            path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/include"),
+            path.join(pdir, "firmware/lib/esp8266/tools/sdk/include"),
+            path.join(pdir, "firmware/lib/esp8266/tools/sdk/lwip2/include"),
+            path.join(pdir, "firmware/lib/esp8266/cores/esp8266"),
+            path.join(pdir, "firmware/lib/esp8266/variants/nodemcu"),
+            path.join(pdir, "firmware/lib/esp8266/libraries/ESP8266WebServer/src"),
+            path.join(pdir, "firmware/lib/esp8266/libraries/ESP8266WebServer/src/detail"),
+            path.join(pdir, "firmware/lib/esp8266/libraries/ESP8266WiFi/src"),
+            path.join(pdir, "firmware/lib/esp8266/libraries/ESP8266WiFi/src/include"),
+            path.join(pdir, "firmware/lib/esp8266/libraries/LittleFS/src"),
+            path.join(pdir, "firmware/lib/esp8266/libraries/LittleFS/lib/littlefs"),
+            path.join(pdir, "firmware"),
             path.join(target:targetdir(), "generated")
         )
     end)
@@ -227,14 +230,14 @@ rule("avr_nano.config")
         )
 
         target:add("includedirs",
-            "firmware/lib/ArduinoCore-avr/cores/arduino",
-            "firmware/lib/ArduinoCore-avr/variants/eightanaloginputs",
-            "firmware/lib/ArduinoCore-avr/libraries/EEPROM/src",
-            "firmware/lib/ArduinoCore-avr/libraries/Wire/src",
-            "firmware/lib/ArduinoCore-avr/libraries/SPI/src",
-            "firmware/lib/ArduinoCore-avr/libraries/SoftwareSerial/src",
-            "firmware/lib/ArduinoRS485/src",
-            "firmware"
+            path.join(pdir, "firmware/lib/ArduinoCore-avr/cores/arduino"),
+            path.join(pdir, "firmware/lib/ArduinoCore-avr/variants/eightanaloginputs"),
+            path.join(pdir, "firmware/lib/ArduinoCore-avr/libraries/EEPROM/src"),
+            path.join(pdir, "firmware/lib/ArduinoCore-avr/libraries/Wire/src"),
+            path.join(pdir, "firmware/lib/ArduinoCore-avr/libraries/SPI/src"),
+            path.join(pdir, "firmware/lib/ArduinoCore-avr/libraries/SoftwareSerial/src"),
+            path.join(pdir, "firmware/lib/ArduinoRS485/src"),
+            path.join(pdir, "firmware")
         )
     end)
 rule_end()
@@ -333,20 +336,28 @@ target("server")
         local gendur = path.join(outdir, "generated")
         os.mkdir(outdir)
         os.mkdir(gendur)
+    end)
+
+    before_build(function (target)
+        local outdir = target:targetdir()
+        local gendur = path.join(outdir, "generated")
+        os.mkdir(gendur)
 
         -- 1. Read .env file & generate credentials.h
-        local env_file = path.join(os.projectdir(), ".env")
+        local env_file = path.join(pdir, ".env")
+        if not os.isfile(env_file) then
+            raise("Error: .env file not found at: " .. env_file .. "\nCopy .env.example to .env and fill in WIFI_SSID / WIFI_PASS (or WIFI_PSWD) before building.")
+        end
+
         local env_vars = {}
-        if os.isfile(env_file) then
-            local content = io.readfile(env_file)
-            for line in content:gmatch("[^\r\n]+") do
-                line = line:gsub("^%s+", ""):gsub("%s+$", "")
-                if #line > 0 and not line:startswith("#") then
-                    local k, v = line:match("^([%w_]+)%s*=%s*(.*)$")
-                    if k and v then
-                        v = v:gsub('^["\']', ''):gsub('["\']$', '')
-                        env_vars[k] = v
-                    end
+        local content = io.readfile(env_file)
+        for line in content:gmatch("[^\r\n]+") do
+            line = line:gsub("^%s+", ""):gsub("%s+$", "")
+            if #line > 0 and not line:startswith("#") then
+                local k, v = line:match("^([%w_]+)%s*=%s*(.*)$")
+                if k and v then
+                    v = v:gsub('^["\']', ''):gsub('["\']$', '')
+                    env_vars[k] = v
                 end
             end
         end
@@ -389,7 +400,8 @@ target("server")
         local mask_formatted = parse_ip(raw_mask, "SERVER_MASK") or "IPAddress(255, 255, 255, 0)"
 
         local raw_ip_str = raw_ip and raw_ip:gsub('^["\']', ''):gsub('["\']$', ''):gsub("%s+", "") or "192.168.0.53"
-        local header_content = string.format([[#ifndef ENV_H
+        local header_content = string.format([==[
+#ifndef ENV_H
 #define ENV_H
 
 #define WIFI_SSID %q
@@ -403,12 +415,12 @@ target("server")
 #define SERVER_MASK %s
 
 #endif // ENV_H
-]], wifi_ssid, wifi_pass, ip_formatted, raw_ip_str, gw_formatted, mask_formatted)
+]==], wifi_ssid, wifi_pass, ip_formatted, raw_ip_str, gw_formatted, mask_formatted)
 
         local target_file = path.join(gendur, "credentials.h")
         io.writefile(target_file, header_content)
 
-        -- 2. Generate buildinfo.h & buildinfo.cpp
+        -- 2. Generate buildinfo.h & buildinfo.cpp (regenerated on every build)
         local buildinfo_h = path.join(gendur, "buildinfo.h")
         local buildinfo_cpp = path.join(gendur, "buildinfo.cpp")
         if not os.isfile(buildinfo_h) then
@@ -418,26 +430,19 @@ typedef struct { const char *date, *time, *src_version, *env_version; } _tBuildI
 extern _tBuildInfo _BuildInfo;
 ]])
         end
-        if not os.isfile(buildinfo_cpp) then
-            local date_str = os.date("%Y-%m-%d")
-            local time_str = os.date("%H:%M:%S")
-            io.writefile(buildinfo_cpp, string.format([[
+
+        local date_str = os.date("%Y-%m-%d")
+        local time_str = os.date("%H:%M:%S")
+        io.writefile(buildinfo_cpp, string.format([==[
 #include "buildinfo.h"
 _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
-]], date_str, time_str))
-        end
+]==], date_str, time_str))
 
         target:add("files", buildinfo_cpp)
-    end)
 
-    before_build(function (target)
-        local bindir = path.join(os.projectdir(), "firmware/lib/esp8266/tools/xtensa-lx106-elf/bin")
-        local gcc = path.join(bindir, "xtensa-lx106-elf-gcc")
-        local outdir = target:targetdir()
-        os.mkdir(outdir)
-
-        -- Preprocess linker scripts
-        local sdk_ld = path.join(os.projectdir(), "firmware/lib/esp8266/tools/sdk/ld")
+        -- 3. Preprocess linker scripts
+        local gcc = path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/bin", "xtensa-lx106-elf-gcc")
+        local sdk_ld = path.join(pdir, "firmware/lib/esp8266/tools/sdk/ld")
         local local_flash_ld = path.join(outdir, "local.eagle.flash.ld")
         local local_common_ld = path.join(outdir, "local.eagle.app.v6.common.ld")
 
@@ -462,13 +467,14 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
         })
     end)
 
+
     after_build(function (target)
         local python = "python3"
-        local tools_dir = path.join(os.projectdir(), "firmware/lib/esp8266/tools")
+        local tools_dir = path.join(pdir, "firmware/lib/esp8266/tools")
         local bin_dir = path.join(tools_dir, "xtensa-lx106-elf/bin")
         local elf_path = target:targetfile()
         local bin_path = path.join(target:targetdir(), "server.bin")
-        local eboot_path = path.join(os.projectdir(), "firmware/lib/esp8266/bootloaders/eboot/eboot.elf")
+        local eboot_path = path.join(pdir, "firmware/lib/esp8266/bootloaders/eboot/eboot.elf")
 
         -- 1. Generate firmware .bin image
         print("Creating binary image: %s", bin_path)
@@ -484,9 +490,9 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
         })
 
         -- 2. Generate LittleFS .bin filesystem image
-        local mklittlefs_tool = path.join("firmware/lib/esp8266/tools", "mklittlefs/mklittlefs")
+        local mklittlefs_tool = path.join(pdir, "firmware/lib/esp8266/tools", "mklittlefs/mklittlefs")
         local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
-        local static_dir = path.join(os.projectdir(), "static")
+        local static_dir = path.join(pdir, "static")
         print("Creating LittleFS image: %s", fs_bin_path)
         os.execv(mklittlefs_tool, {
             "-c", static_dir,
@@ -535,7 +541,7 @@ target_end()
 
 target("node_station")
     set_kind("binary")
-    set_default(true)
+    set_default(false)
     set_filename("nano.elf")
     set_targetdir("$(builddir)")
     set_toolchains("avr")
@@ -617,7 +623,7 @@ task("flash")
             os.exec("xmake")
         end
 
-        local flasher_tool = path.join(os.projectdir(), "firmware/tools/flasher.py")
+        local flasher_tool = path.join(pdir, "firmware/tools/flasher.py")
         local args = {flasher_tool, "-t", target_name}
 
         if port and #port > 0 then
@@ -668,12 +674,12 @@ task("flash_fs")
         local target = project.target("server")
         local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
         if not os.isfile(fs_bin_path) then
-            fs_bin_path = path.join(os.projectdir(), "build/littlefs.bin")
+            fs_bin_path = path.join(pdir, "build/littlefs.bin")
         end
         local port = option.get("port")
         local baud = tostring(option.get("baud") or 115200)
 
-        local upload_tool = path.join(os.projectdir(), "firmware/lib/esp8266/tools/upload.py")
+        local upload_tool = path.join(pdir, "firmware/lib/esp8266/tools/upload.py")
         local args = {upload_tool, "--chip", "esp8266"}
         if port and #port > 0 then
             table.insert(args, "--port")
@@ -704,7 +710,7 @@ task("monitor")
         import("core.base.option")
         local port = option.get("port") or "/dev/ttyUSB0"
         local baud = tostring(option.get("baud") or 9600)
-        local miniterm = path.join(os.projectdir(), "firmware/lib/makeEspArduino/tools/miniterm.py")
+        local miniterm = path.join(pdir, "firmware/lib/makeEspArduino/tools/miniterm.py")
         if os.isfile(miniterm) then
             os.execv("python3", {miniterm, "--exit-char", "3", "--rts=0", "--dtr=0", port, baud})
         else

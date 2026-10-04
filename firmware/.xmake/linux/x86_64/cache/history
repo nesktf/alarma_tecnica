@@ -11,6 +11,20 @@
         "xmake f -p linux --toolchain=xtensa-lx106-elf",
         "xmake f -p linux --toolchain=xtensa-lx106-elf",
         "xmake ",
-        "xmake "
+        "xmake ",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake ",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake ",
+        "xmake ",
+        "xmake ",
+        "xmake ",
+        "xmake ",
+        "xmake ",
+        "xmake f -p linux --toolchain=xtensa-lx106-elf",
+        "xmake ",
+        "xmake build server",
+        "xmake build server"
     }
 }

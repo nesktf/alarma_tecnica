@@ -126,3 +126,10 @@ Cuando la política de decisión (umbral/histéresis) esté definida, extraerla 
 3. Dashboard y contrato HTTP muestran el estado sin confundir simulación con hardware.
 4. Pasa el build Xtensa y se mide el margen de RAM/IRAM/flash.
 5. Los requisitos eléctricos/temporales se validan finalmente con la placa y se documenta cualquier limitación.
+
+## Pendientes de hardware Nano (Arduino)
+
+- [ ] Verificar toolchain AVR en xmake.lua: asegurar que `avr-gcc` se detecte correctamente y que las flags `-mmcu=atmega328p` se apliquen.
+- [ ] Probar compilación de `nano_core` target: `xmake f -p linux --toolchain=avr && xmake nano_core`.
+- [ ] Validar que el firmware Arduino Nano pueda compilarse y enlace correctamente con las dependencias de SPI/I2C si se añaden.
+- [ ] Documentar en el vault el proceso de flashing para Arduino Nano usando el bootloader adecuado.

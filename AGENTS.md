@@ -4,7 +4,7 @@
 
 El repositorio es un monorepo con dos capas separadas por una barrera de flasheo:
 
-- `firmware/`: **única capa que se flashea** en la NodeMCU ESP8266. `firmware/src/server.cpp` inicializa LittleFS/Wi-Fi, mide el sensor ultrasónico y sirve `/api/state` junto con los archivos web; `firmware/src/sensor.cpp` contiene el muestreo y el formateador del contrato. `firmware/xmake.lua` compila para Xtensa LX106 usando el toolchain y SDK de `lib/esp8266` (raíz).
+- `firmware/`: **única capa que se flashea** en la NodeMCU ESP8266. `firmware/server.cpp` inicializa LittleFS/Wi-Fi, mide el sensor ultrasónico y sirve `/api/state` junto con los archivos web; `firmware/sensor.cpp` contiene el muestreo y el formateador del contrato. El build cruzado se controla desde `xmake.lua` en la **raíz** del repositorio (no existe `firmware/xmake.lua`).
 - `simulator/`: modelo local determinista de la placa y servidor HTTP de desarrollo (`127.0.0.1:8080`). **No** es un emulador Xtensa, **no** se flashea y no debe incorporarse al firmware.
 - `shared/api_state.schema.json`: contrato del JSON de `GET /api/state`, con las claves base obligatorias y las claves de demostración marcadas `preview_only`.
 - `static/`: interfaz compartida entre el ESP8266 y el simulador; también se empaqueta en la imagen LittleFS.
@@ -22,16 +22,22 @@ python3 -m simulator.server
 # Pruebas nativas, sin instalar dependencias (incluyen contrato)
 python3 -m unittest discover -s tests -v
 
-# Build real para Xtensa LX106; genera firmware/build/server.bin y littlefs.bin
-cd firmware
+# Build real para Xtensa LX106 — desde la RAÍZ del repositorio
+# genera build/server.bin y build/littlefs.bin
 xmake f -p linux --toolchain=xtensa-lx106-elf
 xmake
+
+# Build Arduino Nano (target no predeterminado)
+xmake f -p linux --toolchain=avr && xmake build node_station
 ```
 
 No es necesario conectar una placa para ejecutar el simulador. No ejecutar `xmake flash` como parte de pruebas automatizadas ni afirmar que una prueba local valida hardware real.
 
-> Nota de build: en xmake 3.1.1 la plataforma `cross` por defecto no resuelve
-> el toolchain local; configurar con `-p linux --toolchain=xtensa-lx106-elf`.
+> Nota de build: en xmake 3.1.1 la plataforma `cross` no resuelve el toolchain
+> local; usar `-p linux --toolchain=xtensa-lx106-elf`. El `xmake.lua` es único y
+> vive en la **raíz** del repositorio — invocar `xmake` siempre desde ahí, nunca
+> desde `firmware/`. El target predeterminado es `server` (ESP8266). Para compilar
+> el Arduino Nano: `xmake f -p linux --toolchain=avr && xmake build node_station`.
 
 ## Contrato de estado
 
@@ -68,3 +74,13 @@ Cuando la política de decisión (umbral/histéresis) esté definida, extraerla 
 - Las credenciales se generan desde `.env` al compilar; nunca copiar secretos al vault, tests ni salidas de diagnóstico compartidas.
 - `firmware/src/credentials.h` es generado y está ignorado por Git. No tratarlo como fuente mantenida a mano.
 - El directorio `redes-ii-vault/.trash/` es contenido del usuario; no limpiarlo ni reorganizarlo incidentalmente.
+
+## Descubrimiento de skills y MCP
+
+Antes de cada tarea:
+
+1. Revisa las skills disponibles y carga las que correspondan al dominio antes de empezar el trabajo. Las sugerencias automáticas del router ayudan a descubrirlas, pero no son exhaustivas.
+2. Revisa las herramientas MCP disponibles y usa las especializadas cuando aporten valor; no invoques herramientas irrelevantes ni dupliques trabajo.
+3. Si no hay una skill o MCP pertinente, continúa con el flujo habitual del proyecto.
+
+En la respuesta final, nombra brevemente las skills y MCP que hayas usado.

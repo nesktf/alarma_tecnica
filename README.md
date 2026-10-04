@@ -13,7 +13,7 @@ El contrato de estado mantiene compatibilidad entre placa y simulador mediante e
 
 ## Estructura principal
 
-- `firmware/` — **capa 1, software que se flashea.** `src/` (server, sensor) y `xmake.lua` para el build cruzado Xtensa. Ver `firmware/README.md`.
+- `firmware/` — **capa 1, software que se flashea.** `server.cpp`, `sensor.cpp`, `node_station.cpp`. Ver `firmware/README.md`.
 - `simulator/` — **capa 2, previsualización.** Modelo de estado determinista y servidor HTTP local (`127.0.0.1:8080`) para pruebas de UI y API.
 - `shared/` — contrato compartido: `api_state.schema.json` define el JSON base de `GET /api/state`.
 - `static/` — interfaz web compartida entre firmware y simulador (se empaqueta en la imagen LittleFS del firmware).
@@ -31,11 +31,13 @@ python3 -m simulator.server
 # Pruebas nativas: modelo, API HTTP y contrato del esquema
 python3 -m unittest discover -s tests -v
 
-# Build cruzado real para Xtensa LX106 (genera firmware/build/server.bin
-# y firmware/build/littlefs.bin)
-cd firmware
+# Build cruzado real para Xtensa LX106 (genera build/server.bin y build/littlefs.bin)
+# El xmake.lua único vive en la raíz; invocar siempre desde ahí.
 xmake f -p linux --toolchain=xtensa-lx106-elf
 xmake
+
+# Build del firmware Arduino Nano (AVR ATmega328P) — target no predeterminado
+xmake f -p linux --toolchain=avr && xmake build node_station
 ```
 
 ## Convenciones de diseño clave
@@ -44,3 +46,5 @@ xmake
 - La interfaz y el estado deben mantenerse compatibles entre firmware y simulador; el esquema `shared/api_state.schema.json` es la fuente de verdad y se valida en `tests/test_contract.py`.
 - Las claves `controls` y `logs` son `preview_only`: las emite solo el simulador para ejercitar el dashboard; el firmware no las incluye. `alarm_system` está en el contrato base y lo emiten ambos.
 - No ejecutar `xmake flash` como parte de pruebas automatizadas ni afirmar que una prueba local valida hardware real.
+- El archivo `xmake.lua` es único y vive en la raíz del repositorio. No existe ni debe existir un `firmware/xmake.lua` separado.
+- El target `server` (ESP8266) es el predeterminado (`set_default(true)`). El target `node_station` (AVR) es `set_default(false)` y debe invocarse explícitamente con `xmake build node_station` usando `--toolchain=avr`.

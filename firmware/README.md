@@ -11,8 +11,8 @@ NodeMCU ESP8266**. Todo lo demás del repositorio (`simulator/`, `static/`,
 - `src/sensor.cpp`, `src/sensor.hpp`: muestreo ultrasónico cada segundo
   (TRIG D6/GPIO12, ECHO D5/GPIO14, timeout 30 ms) y el formateador del
   contrato JSON de estado.
-- `xmake.lua`: build cruzado para Xtensa LX106 con el toolchain y SDK de
-  `lib/esp8266` (que permanece en la raíz del repositorio).
+- `../xmake.lua` (raíz del repositorio): único archivo de build. Compila para
+  Xtensa LX106 con el toolchain y SDK de `lib/esp8266`. No existe `firmware/xmake.lua`.
 
 ## Credenciales
 
@@ -23,10 +23,11 @@ Las credenciales se generan desde `../.env` (raíz del repositorio) al compilar:
 ## Comandos
 
 ```sh
-# Configurar y compilar ( genera build/server.elf, build/server.bin y
-# build/littlefs.bin = LittleFS desde ../static )
+# Configurar y compilar — invocar desde la RAÍZ del repositorio
+# (el xmake.lua único vive en la raíz, no en firmware/)
 xmake f -p linux --toolchain=xtensa-lx106-elf
 xmake
+# Genera: build/server.elf, build/server.bin, build/littlefs.bin
 
 # Flashear en la placa (requiere conectar la NodeMCU)
 xmake flash --port=/dev/ttyUSB0            # solo firmware
@@ -54,3 +55,16 @@ Las claves base (`board`, `state`, `wifi`, `filesystem`, `sensor`, `pins`,
 firmware y simulador. El firmware emite `alarm_system` con el estado actual del
 sistema de alarma. Las claves `controls` y `logs` son exclusivas del simulador y
 están marcadas `preview_only` en el esquema.
+
+## Refactorización xmake.lua — 2026-10-04
+
+El `xmake.lua` fue auditado y refactorizado para corregir 7 problemas. Cambios clave:
+
+- `set_defaultplat("linux")` — corrige fallo de resolución de toolchain con `cross` en xmake 3.1.1.
+- `local pdir = os.projectdir()` al inicio del archivo — reemplaza todos los `os.scriptdir()` y rutas relativas; invariante al directorio de invocación.
+- `includedirs` en ambas rules usan `path.join(pdir, ...)` — ya no dependen del CWD.
+- `credentials.h` generado en `before_build` (antes: `on_load`) — un cambio en `.env` ya no requiere `xmake f`.
+- `buildinfo.cpp` regenerado en cada build con fecha y hora actuales.
+- Guard explícito si `.env` está ausente con mensaje de error accionable.
+- Sort descendente de candidates `avr-gcc` — usa la versión más alta disponible.
+- `node_station` (AVR) tiene `set_default(false)` para no interferir con el build ESP8266 por defecto.
