@@ -47,7 +47,7 @@ flowchart TD
         H --> J["Actualiza Serial y estado HTTP"]
     end
     subgraph PREVIEW["Capa 2 — simulator/ (previsualización, no se flashea)"]
-        M["DeviceModel determinista"] --> S["HTTP 127.0.0.1:8080"]
+        M["DeviceModel con reloj inyectado"] --> S["HTTP 127.0.0.1:8080"]
     end
     K["static/js/main.js"] --> L["GET /api/state cada 1 s"]
     L --> E
@@ -82,9 +82,13 @@ Archivos actuales:
 ```text
 firmware/server.cpp        # firmware ESP8266; GET /api/state
 firmware/sensor.cpp        # muestreo y serialización del estado
+firmware/node_bus.cpp      # maestro de bus RS485 para ESP8266
+firmware/nano_node.cpp     # nodo esclavo RS485 para Arduino Nano
+firmware/protocol.h        # tramas binarias de 5 y 6 bytes con CRC16
 static/                    # página y estilos/script compartidos con simulación
 simulator/model.py         # estado simulado y entradas virtuales
 simulator/server.py        # HTTP local: UI, API de estado y controles de prueba
+tests/test_contract.py     # pruebas de contrato JSON y CRC16 binario
 tests/test_simulator.py    # pruebas de estados, muestreo y API
 ```
 
@@ -240,7 +244,8 @@ xmake f -p linux --toolchain=xtensa-lx106-elf && xmake
 xmake f -p linux --toolchain=avr && xmake build node_station
 ```
 
-### Verificación post-refactorización (2026-10-04)
+### Verificación del sistema (2026-10-06)
 
-- `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake build server`: RAM 37%, IRAM 91%, flash 28% ✓
-- `python3 -m unittest discover -s tests -v`: 24/24 tests OK ✓
+- `xmake f -p linux --toolchain=xtensa-lx106-elf && xmake build server`: RAM 38% (31.232/80.192 B), IRAM 91% (60.287/65.536 B), flash 28% (304.036/1.048.576 B) ✓
+- `python3 -m unittest discover -s tests -v`: 30/30 tests OK (contrato, modelo, API y CRC16 binario) ✓
+- `node --check static/js/main.js`: sintaxis OK ✓

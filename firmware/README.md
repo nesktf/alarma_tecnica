@@ -11,6 +11,9 @@ NodeMCU ESP8266**. Todo lo demás del repositorio (`simulator/`, `static/`,
 - `sensor.cpp`, `sensor.hpp`: muestreo ultrasónico cada segundo
   (TRIG D6/GPIO12, ECHO D5/GPIO14, timeout 30 ms) y el formateador del
   contrato JSON de estado.
+- `node_bus.cpp`, `node_bus.hpp`: gestión del bus RS485 maestro en ESP8266, polling round-robin de nodos y decodificación de tramas binarias.
+- `nano_node.cpp`: firmware esclavo para Arduino Nano (ATmega328P) que responde a comandos de polling RS485 con lecturas de sensor y estado.
+- `static/`: interfaz web de producción de solo lectura (HTML/CSS/JS) empaquetada en la imagen LittleFS (`build/littlefs.bin`).
 - `../xmake.lua` (raíz del repositorio): único archivo de build. Compila para
   Xtensa LX106 con el toolchain y SDK de `firmware/lib/esp8266`. No existe `firmware/xmake.lua`.
 
@@ -40,12 +43,9 @@ xmake monitor --port=/dev/ttyUSB0
 > `xmake flash` y `xmake monitor` **no** forman parte de las pruebas
 > automatizadas: una prueba local no valida hardware real.
 
-## Reporte de recursos (build 1.0.0, NodeMCU, 80 MHz)
+## Reporte de recursos (build actual, NodeMCU, 80 MHz)
 
-El build real reporta uso de RAM/IRAM/flash. Ejemplo de la migración a dos
-capas: RAM 30344/80192 (37%), IRAM 60287/65536 (91%), flash 303028/1 MiB
-(28%). Verificar siempre estos números al añadir funcionalidad: el build
-nativo del simulador **no** mide los costes del ESP8266.
+El build real reporta uso de RAM/IRAM/flash: RAM 31.232/80.192 B (38%), IRAM 60.287/65.536 B (91%), flash 304.036/1 MiB (28%). Verificar siempre estos números al añadir funcionalidad: el build nativo del simulador **no** mide los costes del ESP8266.
 
 ## Contrato de estado
 

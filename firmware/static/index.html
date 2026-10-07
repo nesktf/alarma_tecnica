@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Alarma Técnica — Instituto Educativo</title>
+  <meta name="description" content="Sistema de Alarma Distribuido para Colegio - Interfaz de Visualización en Tiempo Real">
+  <link rel="stylesheet" href="/css/pico.min.css">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="shell">
+    <!-- Header y Topbar de Estado General -->
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-badge">SISTEMA DE SEGURIDAD INSTITUCIONAL</div>
+        <h1 class="brand-title">Alarma Técnica</h1>
+        <p class="brand-subtitle">Instituto Educativo · Nodo Central NodeMCU ESP8266</p>
+      </div>
+
+      <!-- Semáforo del Nodo Central -->
+      <div class="topbar-status-group">
+        <div id="centralTrafficLight" class="traffic-light-pill state-disarmed">
+          <span class="traffic-light-beacon"></span>
+          <span id="trafficLightState" class="traffic-light-text">DESARMADO</span>
+          <span id="armingTimer" class="arming-timer-text" hidden>60s</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Barra de Telemetría Rápida -->
+    <section class="telemetry-bar">
+      <div class="telemetry-item">
+        <span class="telemetry-label">Enlace de Monitoreo</span>
+        <span id="connectionBadge" class="badge good">Conectado</span>
+      </div>
+      <div class="telemetry-item">
+        <span class="telemetry-label">Alimentación (V_bus)</span>
+        <div class="telemetry-value-group">
+          <strong id="vBusValue" class="telemetry-value">12.4 V</strong>
+          <span id="vBusStatusBadge" class="mini-chip normal">Normal</span>
+        </div>
+      </div>
+      <div class="telemetry-item">
+        <span class="telemetry-label">Sectores activos</span>
+        <strong id="activeSectorsCount" class="telemetry-value">0 / 5</strong>
+      </div>
+      <div class="telemetry-item">
+        <span class="telemetry-label">Canal RS485</span>
+        <strong id="rs485Status" class="telemetry-value text-green">Operativo</strong>
+      </div>
+      <div class="telemetry-item">
+        <span class="telemetry-label">Alerta sonora</span>
+        <button id="soundToggleBtn" class="sound-toggle-btn secondary outline" type="button" title="Activar/Silenciar sonido de alarma">
+          <span id="soundIcon">🔇</span> <span id="soundText">Silenciado</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Pestañas de navegación de producción (3 vistas) -->
+    <nav class="nav-tabs" aria-label="Vistas principales">
+      <button id="tabBtnMap" class="tab-btn active" data-tab="tabMap" type="button">
+        <span class="tab-icon">🗺️</span> Mapa de Sectores
+      </button>
+      <button id="tabBtnGrid" class="tab-btn" data-tab="tabGrid" type="button">
+        <span class="tab-icon">📋</span> Grilla y Eventos
+      </button>
+      <button id="tabBtnBoard" class="tab-btn" data-tab="tabBoard" type="button">
+        <span class="tab-icon">💻</span> Dispositivo NodeMCU
+      </button>
+    </nav>
+
+    <!-- ============================================================= -->
+    <!-- TAB 1: MAPA DE SECTORES                                       -->
+    <!-- ============================================================= -->
+    <section id="tabMap" class="tab-pane active" aria-label="Mapa de sectores">
+      <div class="map-layout">
+        <!-- Columna izquierda: Plano interactivo -->
+        <article class="panel map-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">PLANO ARQUITECTÓNICO DEL COLEGIO</p>
+              <h2>Distribución espacial de sectores</h2>
+            </div>
+            <div class="map-toolbar-actions">
+              <label class="toggle-sm">
+                <input id="toggleBlueprintImg" type="checkbox" checked> Plano base
+              </label>
+              <label class="toggle-sm">
+                <input id="toggleProjectedSectors" type="checkbox"> Ver proyectados
+              </label>
+            </div>
+          </header>
+
+          <!-- Contenedor del mapa SVG interactivo -->
+          <div class="map-wrapper">
+            <svg id="schoolMapSvg" viewBox="0 0 805 487" class="school-svg" xmlns="http://www.w3.org/2000/svg">
+              <defs>
+                <!-- Patrón para sectores sin respuesta (rayado) -->
+                <pattern id="diagonalHatch" width="10" height="10" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                  <line x1="0" y1="0" x2="0" y2="10" stroke="#ff8800" stroke-width="2" />
+                </pattern>
+                <!-- Patrón para sectores proyectados -->
+                <pattern id="projectedHatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+                  <line x1="0" y1="0" x2="0" y2="8" stroke="#556677" stroke-width="1" />
+                </pattern>
+              </defs>
+
+              <!-- Imagen arquitectónica de fondo -->
+              <image id="blueprintImg" href="/img/plano_escuela.png" x="0" y="0" width="805" height="487" preserveAspectRatio="none" opacity="0.8" />
+
+              <!-- Calles perimetrales -->
+              <text x="35" y="475" class="street-text">CALLE A (SUR)</text>
+              <text x="35" y="25" class="street-text">CALLE B (NORTE)</text>
+              <text x="785" y="250" class="street-text-vertical" transform="rotate(90 785 250)">CALLE C (ESTE)</text>
+
+              <!-- ================= SECTORES ACTIVOS ================= -->
+
+              <!-- Sector 1: Área Operativa / Central (Local en NodeMCU/Nano) -->
+              <g id="mapSector-1" class="map-sector-group" data-sector-id="1">
+                <circle cx="105" cy="180" r="16" class="beacon-pulse" />
+                <rect id="area-1" class="sector-poly normal" x="65" y="145" width="85" height="70" rx="4" />
+                <rect x="70" y="150" width="45" height="15" rx="3" class="sector-tag" />
+                <text x="92" y="161" text-anchor="middle" class="sector-tag-text">ZONA 1</text>
+                <text x="107" y="182" text-anchor="middle" class="sector-title">Área Operativa</text>
+                <text x="107" y="200" text-anchor="middle" class="sector-sub">Central (Nano)</text>
+              </g>
+
+              <!-- Sector 2: Automotores (RS485 0x02) -->
+              <g id="mapSector-2" class="map-sector-group" data-sector-id="2">
+                <circle cx="95" cy="380" r="18" class="beacon-pulse" />
+                <polygon id="area-2" class="sector-poly normal" points="45,335 155,335 155,445 45,445" />
+                <rect x="52" y="342" width="45" height="15" rx="3" class="sector-tag" />
+                <text x="74" y="353" text-anchor="middle" class="sector-tag-text">ZONA 2</text>
+                <text x="100" y="380" text-anchor="middle" class="sector-title">Automotores</text>
+                <text x="100" y="402" text-anchor="middle" class="sector-sub">RS485 0x02</text>
+              </g>
+
+              <!-- Sector 3: Jefatura de Taller (RS485 0x03) -->
+              <g id="mapSector-3" class="map-sector-group" data-sector-id="3">
+                <circle cx="340" cy="380" r="18" class="beacon-pulse" />
+                <rect id="area-3" class="sector-poly normal" x="185" y="335" width="310" height="110" rx="4" />
+                <rect x="195" y="345" width="45" height="15" rx="3" class="sector-tag" />
+                <text x="217" y="356" text-anchor="middle" class="sector-tag-text">ZONA 3</text>
+                <text x="340" y="380" text-anchor="middle" class="sector-title">Jefatura de Taller</text>
+                <text x="340" y="402" text-anchor="middle" class="sector-sub">RS485 0x03 · Pulsador Pánico</text>
+              </g>
+
+              <!-- Sector 4: Vicedirección (RS485 0x04) -->
+              <g id="mapSector-4" class="map-sector-group" data-sector-id="4">
+                <circle cx="105" cy="85" r="14" class="beacon-pulse" />
+                <rect id="area-4" class="sector-poly normal" x="65" y="55" width="85" height="65" rx="4" />
+                <rect x="70" y="60" width="45" height="15" rx="3" class="sector-tag" />
+                <text x="92" y="71" text-anchor="middle" class="sector-tag-text">ZONA 4</text>
+                <text x="107" y="90" text-anchor="middle" class="sector-title">Vicedirección</text>
+                <text x="107" y="108" text-anchor="middle" class="sector-sub">RS485 0x04 · Pánico</text>
+              </g>
+
+              <!-- Sector 5: Informática (RS485 0x05) -->
+              <g id="mapSector-5" class="map-sector-group" data-sector-id="5">
+                <circle cx="560" cy="115" r="16" class="beacon-pulse" />
+                <rect id="area-5" class="sector-poly normal" x="515" y="65" width="95" height="95" rx="4" />
+                <rect x="525" y="72" width="45" height="15" rx="3" class="sector-tag" />
+                <text x="547" y="83" text-anchor="middle" class="sector-tag-text">ZONA 5</text>
+                <text x="562" y="112" text-anchor="middle" class="sector-title">Informática</text>
+                <text x="562" y="132" text-anchor="middle" class="sector-sub">RS485 0x05</text>
+              </g>
+
+              <!-- ================= SECTORES PROYECTADOS ================= -->
+
+              <!-- Sector 6: Biblioteca (Proyectado) -->
+              <g id="mapSector-6" class="map-sector-group projected-group" data-sector-id="6" opacity="0.3" style="display: none;">
+                <rect id="area-6" class="sector-poly projected" x="145" y="245" width="85" height="90" rx="4" />
+                <text x="187" y="285" text-anchor="middle" class="sector-title-proj">ZONA 6: Biblioteca</text>
+                <text x="187" y="302" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+              </g>
+
+              <!-- Sector 7: Preceptoría 1 (Proyectado) -->
+              <g id="mapSector-7" class="map-sector-group projected-group" data-sector-id="7" opacity="0.3" style="display: none;">
+                <rect id="area-7" class="sector-poly projected" x="235" y="65" width="90" height="60" rx="4" />
+                <text x="280" y="95" text-anchor="middle" class="sector-title-proj">ZONA 7: Precept. 1</text>
+                <text x="280" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+              </g>
+
+              <!-- Sector 8: Preceptoría 2 (Proyectado) -->
+              <g id="mapSector-8" class="map-sector-group projected-group" data-sector-id="8" opacity="0.3" style="display: none;">
+                <rect id="area-8" class="sector-poly projected" x="335" y="65" width="90" height="60" rx="4" />
+                <text x="380" y="95" text-anchor="middle" class="sector-title-proj">ZONA 8: Precept. 2</text>
+                <text x="380" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+              </g>
+
+              <!-- Sector 9: Preceptoría 3 (Proyectado) -->
+              <g id="mapSector-9" class="map-sector-group projected-group" data-sector-id="9" opacity="0.3" style="display: none;">
+                <rect id="area-9" class="sector-poly projected" x="435" y="65" width="70" height="60" rx="4" />
+                <text x="470" y="95" text-anchor="middle" class="sector-title-proj">ZONA 9</text>
+                <text x="470" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
+              </g>
+            </svg>
+          </div>
+
+          <!-- Leyenda de colores del mapa -->
+          <footer class="map-legend">
+            <span class="legend-item"><i class="legend-color normal"></i> Reposo</span>
+            <span class="legend-item"><i class="legend-color motion"></i> Movimiento</span>
+            <span class="legend-item"><i class="legend-color alarm"></i> Alarma activa</span>
+            <span class="legend-item"><i class="legend-color no-response"></i> Sin respuesta (RS485)</span>
+            <span class="legend-item"><i class="legend-color projected"></i> Proyectado</span>
+          </footer>
+        </article>
+
+        <!-- Columna derecha: Inspector del sector seleccionado (Solo Lectura) -->
+        <article id="sectorInspectorPanel" class="panel inspector-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">DETALLE DEL SECTOR</p>
+              <h3 id="inspectorSectorName">Selecciona un sector</h3>
+            </div>
+            <span id="inspectorStatusBadge" class="state-chip">En espera</span>
+          </header>
+
+          <div class="inspector-content">
+            <div class="status-row">
+              <span>Identificador</span>
+              <strong id="inspectorSectorId">—</strong>
+            </div>
+            <div class="status-row">
+              <span>Ubicación física</span>
+              <strong id="inspectorSectorNode">—</strong>
+            </div>
+            <div class="status-row">
+              <span>Periféricos instalados</span>
+              <strong id="inspectorSectorType">—</strong>
+            </div>
+            <div class="status-row">
+              <span>Sensor PIR</span>
+              <strong id="inspectorPirStatus">—</strong>
+            </div>
+            <div class="status-row">
+              <span>Pulsador de pánico</span>
+              <strong id="inspectorPanicStatus">—</strong>
+            </div>
+            <div class="status-row">
+              <span>Canal RS485</span>
+              <strong id="inspectorCommStatus">—</strong>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- TAB 2: GRILLA DE SECTORES Y EVENTOS                           -->
+    <!-- ============================================================= -->
+    <section id="tabGrid" class="tab-pane" aria-label="Grilla y eventos" hidden>
+      <!-- Grilla de tarjetas de sectores -->
+      <article class="panel">
+        <header class="panel-heading">
+          <div>
+            <p class="eyebrow">ESTADO DE SECTORES</p>
+            <h2>Todos los sectores de la institución</h2>
+          </div>
+          <span class="muted">Actualizado en tiempo real</span>
+        </header>
+        <div id="sectorsCardsGrid" class="sectors-grid">
+          <!-- Renderizado dinámico desde main.js -->
+        </div>
+      </article>
+
+      <!-- Tabla de eventos recientes -->
+      <article class="panel">
+        <header class="panel-heading">
+          <div>
+            <p class="eyebrow">REGISTRO DE EVENTOS DEL SISTEMA</p>
+            <h2>Últimos eventos reportados</h2>
+          </div>
+        </header>
+        <div class="table-wrapper">
+          <table class="events-table">
+            <thead>
+              <tr>
+                <th>Hora</th>
+                <th>Severidad</th>
+                <th>Origen / Área</th>
+                <th>Código</th>
+                <th>Evento</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody id="eventsTableBody">
+              <tr>
+                <td colspan="6" class="text-center muted">Sin eventos registrados aún.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <!-- ============================================================= -->
+    <!-- TAB 3: DISPOSITIVO NODEMCU ESP8266 (DASHBOARD FÍSICO)         -->
+    <!-- ============================================================= -->
+    <section id="tabBoard" class="tab-pane" aria-label="Dispositivo NodeMCU" hidden>
+      <section class="dashboard">
+        <!-- Tarjeta Placa NodeMCU -->
+        <article class="panel board-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">DISPOSITIVO CENTRAL</p>
+              <h2>NodeMCU ESP8266</h2>
+            </div>
+            <span id="bootState" class="state-chip">Esperando estado</span>
+          </header>
+          <div class="board-layout">
+            <div class="board" role="img" aria-label="Diagrama simplificado de una placa NodeMCU ESP8266">
+              <div class="board-usb">USB</div>
+              <div class="board-chip">
+                <span>ESP</span>
+                <strong>8266</strong>
+                <small>ESP-12E</small>
+              </div>
+              <div class="board-antenna"></div>
+              <div class="board-label">NodeMCU</div>
+              <div class="board-led"><i id="ledIndicator"></i> LED</div>
+              <div class="board-pins left-pins">
+                <span>D0</span><span>D1</span><span>D2</span><span>D3</span><span>D4</span>
+                <span class="sensor-pin">D5 <b id="echoPin">Echo</b></span>
+                <span class="sensor-pin">D6 <b id="triggerPin">Trig</b></span>
+                <span>D7</span><span>D8</span>
+              </div>
+              <div class="board-pins right-pins">
+                <span>3V3</span><span>GND</span><span>RST</span><span>A0</span><span>RX</span>
+                <span>TX</span><span>GND</span><span>VIN</span><span>EN</span>
+              </div>
+            </div>
+            <div class="board-facts">
+              <div><span>CPU</span><strong id="cpuLimit">—</strong></div>
+              <div><span>Flash</span><strong id="flashLimit">—</strong></div>
+              <div><span>GPIO Trigger</span><strong id="triggerGpio">—</strong></div>
+              <div><span>GPIO Echo</span><strong id="echoGpio">—</strong></div>
+              <p class="hint">Límites de hardware del microcontrolador Xtensa LX106 a 80 MHz.</p>
+            </div>
+          </div>
+        </article>
+
+        <!-- Sensor ultrasónico -->
+        <article class="panel sensor-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">SENSOR ULTRASÓNICO LOCAL</p>
+              <h2>Distancia HC-SR04</h2>
+            </div>
+            <span id="sampleAge" class="muted">Sin lectura</span>
+          </header>
+          <div class="reading">
+            <strong id="distanceValue">—</strong><span>cm</span>
+          </div>
+          <div class="meter" role="meter" aria-label="Distancia medida" aria-valuemin="0" aria-valuemax="400" aria-valuenow="0">
+            <i id="distanceMeter"></i>
+          </div>
+          <p id="sensorMessage" class="sensor-message">Esperando primera medición.</p>
+          <p class="hint">Muestreo cada 1 s · timeout Echo: 30 ms · pines D6 (Trig) / D5 (Echo).</p>
+        </article>
+
+        <!-- Conectividad y Sistema -->
+        <article class="panel status-panel">
+          <p class="eyebrow">CONECTIVIDAD Y SERVICIOS</p>
+          <div class="status-row"><span>Wi-Fi Station</span><strong id="wifiState">—</strong></div>
+          <div class="status-row"><span>Almacenamiento LittleFS</span><strong id="filesystemState">—</strong></div>
+          <div class="status-row"><span>Firmware runtime</span><strong id="firmwareState">—</strong></div>
+          <div class="status-row"><span>Tiempo de actividad</span><strong id="uptime">—</strong></div>
+        </article>
+
+        <!-- Servidor HTTP -->
+        <article class="panel server-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">SERVIDOR WEB EMPOTRADO</p>
+              <h2>Endpoints HTTP</h2>
+            </div>
+            <span id="serverState" class="state-chip">Sin estado</span>
+          </header>
+          <div class="status-row"><span>URL base</span><strong id="serverUrl">—</strong></div>
+          <div class="status-row"><span>Puerto</span><strong id="serverPort">80</strong></div>
+          <div class="status-row"><span>Última ruta consultada</span><strong id="serverLastRequest">—</strong></div>
+          <div class="server-routes">
+            <span class="eyebrow server-routes-label">Rutas registradas</span>
+            <div id="serverRoutes" class="route-pills"></div>
+          </div>
+        </article>
+
+        <!-- Log serial de la placa -->
+        <article id="eventPanel" class="panel event-panel">
+          <header class="panel-heading">
+            <div>
+              <p class="eyebrow">CONSOLA SERIAL (9600 BAUD)</p>
+              <h2>Mensajes de firmware</h2>
+            </div>
+          </header>
+          <ol id="eventLog" class="event-log"></ol>
+        </article>
+      </section>
+    </section>
+  </div>
+
+  <script src="/js/main.js"></script>
+</body>
+</html>

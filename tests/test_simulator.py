@@ -139,6 +139,26 @@ class DeviceModelTests(unittest.TestCase):
         self.assertEqual(state["v_bus"], 12.4)
         self.assertFalse(state["active_areas"])
 
+    def test_reset_all_restores_nodes_and_device_determinism(self):
+        # Alter distance, controls and sector state
+        self.device.apply_controls({"toggle_motion": 3, "v_bus": 10.0, "distance_cm": 150.0})
+        # Reset all
+        now = self.device._clock()
+        self.device.apply_controls({"reset_all": True})
+        self.device._sample_if_due(now + 1.0)
+        snapshot = self.device.snapshot()
+
+        # Verify nodes state restored
+        self.assertEqual(len(snapshot["nodes"]), 9)
+        for node in snapshot["nodes"]:
+            self.assertTrue(node["online"])
+            self.assertEqual(node["distance_cm"], 100 + (node["node_id"] * 10))
+
+        # Verify device model determinism
+        self.assertEqual(snapshot["sensor"]["distance_cm"], 48.0)
+        self.assertEqual(snapshot["alarm_system"]["v_bus"], 12.4)
+        self.assertEqual(snapshot["alarm_system"]["state"], "DISARMED")
+
     def test_invalid_alarm_types_and_unavailable_sector_actions_are_rejected(self):
         invalid_controls = (
             {"alarm_state": []},
@@ -228,7 +248,21 @@ class SimulatorHttpTests(unittest.TestCase):
         with urlopen(request) as response:
             state = json.load(response)
         self.assertEqual(state["alarm_system"]["state"], "ALARM")
+        # Verify node 2 in snapshot reflects motion/alarm bit 0 (0x04 | 0x01 = 0x05)
+        node2 = next(n for n in state["nodes"] if n["node_id"] == 2)
+        self.assertEqual(node2["status"] & 0x01, 1)
+
         self.assertEqual(state["alarm_system"]["sectors"][1]["status"], "alarm")
+
+        request = Request(
+            self.base_url + "/api/controls",
+            data=b'{"set_alarm_state":"DISARMED"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            state = json.load(response)
+        self.assertEqual(state["alarm_system"]["state"], "DISARMED")
 
     def test_server_activity_is_visible_in_state_payload(self):
        with urlopen(self.base_url + "/api/state") as response:
@@ -266,6 +300,51 @@ class SimulatorHttpTests(unittest.TestCase):
            remote_server.shutdown()
            thread.join()
            remote_server.server_close()
+
+
+    def test_proxy_rejects_unsafe_targets_and_oversized_payloads(self):
+        invalid_target = quote("http://127.0.0.1:8080/forbidden")
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(self.base_url + "/api/proxy?url=" + invalid_target)
+        try:
+            self.assertEqual(raised.exception.code, 400)
+        finally:
+            raised.exception.close()
+
+    def test_route_normalization_handles_query_strings_and_unknown_routes(self):
+        with urlopen(self.base_url + "/?debug=true") as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn("text/html", response.headers.get("Content-Type", ""))
+
+        with urlopen(self.base_url + "/api/state?param=1") as response:
+            self.assertEqual(response.status, 200)
+            state = json.load(response)
+            self.assertEqual(state["server"]["last_request"], "/api/state")
+
+        request = Request(
+            self.base_url + "/api/controls?foo=bar",
+            data=b'{"alarm_state":"DISARMED"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request) as response:
+            self.assertEqual(response.status, 200)
+
+        request = Request(self.base_url + "/api/unknown_endpoint")
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request)
+        try:
+            self.assertEqual(raised.exception.code, 404)
+        finally:
+            raised.exception.close()
+
+        request = Request(self.base_url + "/non_existent_page.html")
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request)
+        try:
+            self.assertEqual(raised.exception.code, 404)
+        finally:
+            raised.exception.close()
 
 
 if __name__ == "__main__":

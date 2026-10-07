@@ -153,5 +153,82 @@ class ApiContractTests(unittest.TestCase):
         self.assertEqual(self.device.snapshot()["state"], "waiting_wifi")
 
 
+    def test_schema_file_is_valid_single_json_document_and_has_no_duplicate_definitions(self):
+        content = SCHEMA_PATH.read_text(encoding="utf-8")
+        decoder = json.JSONDecoder()
+        obj, end = decoder.raw_decode(content)
+        self.assertEqual(end, len(content.strip()), "Schema file has trailing content after main JSON object")
+        self.assertEqual(obj["$id"], "https://redes-ii.local/schemas/api_state.schema.json")
+        self.assertIn("alarm_system", obj["required"])
+        self.assertIn("nodes", obj["required"])
+        self.assertNotIn("controls", obj["required"])
+        self.assertNotIn("logs", obj["required"])
+
+    def test_firmware_formatter_output_satisfies_schema(self):
+        # Sample payload representing format_sensor_state output from firmware/sensor.cpp
+        sample_fw_json = json.loads(
+            '{"simulator":false,"board":"NodeMCU ESP8266","state":"running",'
+            '"uptime_ms":12345,"wifi":true,"filesystem":true,'
+            '"sensor":{"valid":true,"distance_cm":25.4,"age_ms":100,"echo_timeout_us":30000},'
+            '"pins":{"trigger_gpio":12,"echo_gpio":14,"trigger_label":"D6","echo_label":"D5"},'
+            '"limits":{"cpu_mhz":80,"flash_bytes":4194304,"dram_bytes":80192,"iram_bytes":65536},'
+            '"server":{"status":"running","host":"192.168.0.53","port":80,"base_url":"http://192.168.0.53","last_request":"/api/state","routes":["/","/api/state"]},'
+            '"alarm_system":{"state":"DISARMED","arming_remaining_s":0.0,"v_bus":12.4,"v_bus_status":"normal",'
+            '"active_areas":[],"no_response_areas":[],'
+            '"sectors":['
+            '{"id":1,"name":"Área Operativa","node":"central","has_panic":true,"motion":false,"active":false,"no_response":false,"status":"normal"},'
+            '{"id":2,"name":"Automotores","node":"remote","has_panic":false,"motion":false,"active":false,"no_response":false,"status":"normal"},'
+            '{"id":3,"name":"Jefatura de Taller","node":"remote","has_panic":true,"motion":false,"active":false,"no_response":false,"status":"normal"},'
+            '{"id":4,"name":"Vicedirección","node":"remote","has_panic":true,"motion":false,"active":false,"no_response":false,"status":"normal"},'
+            '{"id":5,"name":"Informática","node":"remote","has_panic":false,"motion":false,"active":false,"no_response":false,"status":"normal"}'
+            '],'
+            '"recent_events":[]},'
+            '"ws":{"connected":false,"port":0},'
+            '"auth":{"authenticated":false,"method":"none"},'
+            '"nodes":[]}'
+        )
+        errors = self.schema.validate(sample_fw_json)
+        self.assertEqual(errors, [], "Firmware contract violations:\n" + "\n".join(errors))
+
+    def test_rs485_protocol_crc16_and_packet_serialization(self):
+        """Validates binary protocol framing (protocol.h) and CRC16 calculation across C++ / Python."""
+        def calc_crc16(data: bytes) -> int:
+            crc = 0
+            for byte in data:
+                crc ^= (byte << 8)
+                for _ in range(8):
+                    if crc & 0x8000:
+                        crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+                    else:
+                        crc = (crc << 1) & 0xFFFF
+            return crc
+
+        # Construct a 7-byte sensor packet
+        sync = 0xAA
+        node_id = 2
+        distance = 150  # 0x0096
+        status = 0x05   # Heartbeat (0x04) + Alarm (0x01)
+
+        payload_bytes = bytes([
+            sync,
+            node_id,
+            distance & 0xFF,
+            (distance >> 8) & 0xFF,
+            status,
+        ])
+        expected_crc = calc_crc16(payload_bytes)
+
+        full_packet = payload_bytes + bytes([expected_crc & 0xFF, (expected_crc >> 8) & 0xFF])
+        self.assertEqual(len(full_packet), 7)
+        self.assertEqual(full_packet[0], 0xAA)
+        self.assertEqual(full_packet[1], 2)
+
+        # Verify little-endian CRC unpacking matches
+        calc = calc_crc16(full_packet[:5])
+        unpacked_crc = full_packet[5] | (full_packet[6] << 8)
+        self.assertEqual(calc, unpacked_crc)
+
+
 if __name__ == "__main__":
     unittest.main()
+

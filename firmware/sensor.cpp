@@ -1,4 +1,5 @@
 #include "sensor.hpp"
+#include "node_bus.hpp"
 #include <ESP8266WiFi.h>
 #include "credentials.h"
 
@@ -53,33 +54,99 @@ int format_sensor_state(char* buff, size_t sz) {
     snprintf(distance, sizeof(distance), "null");
   }
 
-  return snprintf(
+  char age_str[16];
+  if (measurement_valid) {
+    snprintf(age_str, sizeof(age_str), "%ld", (long)(millis() - last_measurement));
+  } else {
+    snprintf(age_str, sizeof(age_str), "null");
+  }
+
+  bool is_wifi_connected = false;
+#ifdef ESP8266
+  is_wifi_connected = (WiFi.status() == WL_CONNECTED);
+#else
+  is_wifi_connected = true;
+#endif
+
+  const char* sys_state = "running";
+  if (!filesystem_ready) {
+    sys_state = "halted_filesystem";
+  } else if (!is_wifi_connected) {
+    sys_state = "waiting_wifi";
+  }
+
+  // Construir la cadena de nodos del bus RS485 (1024 bytes garantizan 9 nodos completos sin truncar)
+  char nodes_str[1024] = "";
+  size_t nodes_len = 0;
+  bool first = true;
+  for (uint8_t i = 1; i <= 9; ++i) {
+    const node_state_t *ns = node_bus_get_state(i);
+    if (!ns) continue;
+    
+    char part[128];
+    int n = snprintf(
+      part, sizeof(part),
+      "%s{\"node_id\":%u,\"distance_cm\":%u,\"status\":%u,\"online\":%s,\"last_seen_ms\":%lu}",
+      first ? "" : ",",
+      ns->node_id,
+      ns->distance_cm,
+      ns->status,
+      ns->online ? "true" : "false",
+      (unsigned long)ns->last_seen_ms
+    );
+    
+    if (n <= 0 || nodes_len + (size_t)n >= sizeof(nodes_str)) {
+      // Truncamiento detectado en el buffer de nodos: retornar error explícito
+      return -1;
+    }
+    memcpy(nodes_str + nodes_len, part, n);
+    nodes_len += n;
+    first = false;
+  }
+
+  const char* ip_str = "127.0.0.1";
+#ifdef SERVER_IP_STR
+  ip_str = SERVER_IP_STR;
+#endif
+
+  int written = snprintf(
     buff,
     sz,
-    "{\"simulator\":false,\"board\":\"NodeMCU ESP8266\",\"state\":\"running\","
-    "\"wifi\":true,\"filesystem\":%s,\"uptime_ms\":%lu,"
-    "\"sensor\":{\"valid\":%s,\"distance_cm\":%s,"
-    "\"age_ms\":%ld,\"echo_timeout_us\":30000},"
-    "\"pins\":{\"trigger_gpio\":%u,\"echo_gpio\":%u,\"trigger_label\":\"D6\",\"echo_label\":\"D5\"},"
+    "{\"simulator\":false,\"board\":\"NodeMCU ESP8266\",\"state\":\"%s\","
+    "\"uptime_ms\":%lu,\"wifi\":%s,\"filesystem\":%s,"
+    "\"sensor\":{\"valid\":%s,\"distance_cm\":%s,\"age_ms\":%s,\"echo_timeout_us\":30000},"
+    "\"pins\":{\"trigger_gpio\":12,\"echo_gpio\":14,\"trigger_label\":\"D6\",\"echo_label\":\"D5\"},"
     "\"limits\":{\"cpu_mhz\":80,\"flash_bytes\":4194304,\"dram_bytes\":80192,\"iram_bytes\":65536},"
-    "\"alarm_system\":{\"state\":\"DISARMED\",\"state_code\":0,\"v_bus\":12.4,\"v_bus_status\":\"normal\","
-    "\"active_areas\":[],\"motion_areas\":[],\"no_response_areas\":[],"
+    "\"server\":{\"status\":\"%s\",\"host\":\"%s\",\"port\":80,\"base_url\":\"http://%s\",\"last_request\":\"/api/state\",\"routes\":[\"/\",\"/api/state\"]},"
+    "\"alarm_system\":{\"state\":\"DISARMED\",\"arming_remaining_s\":0.0,\"v_bus\":12.4,\"v_bus_status\":\"normal\","
+    "\"active_areas\":[],\"no_response_areas\":[],"
     "\"sectors\":["
-    "{\"id\":1,\"name\":\"Área Operativa\",\"node\":\"central\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
-    "{\"id\":2,\"name\":\"Automotores\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR\"},"
-    "{\"id\":3,\"name\":\"Jefatura de Taller\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
-    "{\"id\":4,\"name\":\"Vicedirección\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR + Pulsador\"},"
-    "{\"id\":5,\"name\":\"Informática\",\"node\":\"remote\",\"status\":\"normal\",\"type\":\"PIR\"}"
+    "{\"id\":1,\"name\":\"Área Operativa\",\"node\":\"central\",\"has_panic\":true,\"motion\":false,\"active\":false,\"no_response\":false,\"status\":\"normal\"},"
+    "{\"id\":2,\"name\":\"Automotores\",\"node\":\"remote\",\"has_panic\":false,\"motion\":false,\"active\":false,\"no_response\":false,\"status\":\"normal\"},"
+    "{\"id\":3,\"name\":\"Jefatura de Taller\",\"node\":\"remote\",\"has_panic\":true,\"motion\":false,\"active\":false,\"no_response\":false,\"status\":\"normal\"},"
+    "{\"id\":4,\"name\":\"Vicedirección\",\"node\":\"remote\",\"has_panic\":true,\"motion\":false,\"active\":false,\"no_response\":false,\"status\":\"normal\"},"
+    "{\"id\":5,\"name\":\"Informática\",\"node\":\"remote\",\"has_panic\":false,\"motion\":false,\"active\":false,\"no_response\":false,\"status\":\"normal\"}"
     "],"
-    "\"recent_events\":[],\"server\":\"%s\"}}",
-    filesystem_ready ? "true" : "false",
+    "\"recent_events\":[]},"
+    "\"ws\":{\"connected\":false,\"port\":0},"
+    "\"auth\":{\"authenticated\":false,\"method\":\"none\"},"
+    "\"nodes\":[%s]}",
+    sys_state,
     (unsigned long)millis(),
+    is_wifi_connected ? "true" : "false",
+    filesystem_ready ? "true" : "false",
     measurement_valid ? "true" : "false",
     distance,
-    measurement_valid ? (long)(millis() - last_measurement) : -1L,
-    (unsigned)TRIG_PIN,
-    (unsigned)ECHO_PIN,
-    SERVER_IP_STR
+    age_str,
+    is_wifi_connected ? "running" : "degraded",
+    ip_str,
+    ip_str,
+    nodes_str
   );
+
+  if (written < 0 || (size_t)written >= sz) {
+    return -1; // Buffer de salida truncado
+  }
+  return written;
 }
 

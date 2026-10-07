@@ -13,10 +13,11 @@ El contrato de estado mantiene compatibilidad entre placa y simulador mediante e
 
 ## Estructura principal
 
-- `firmware/` — **capa 1, software que se flashea.** `server.cpp`, `sensor.cpp`, `node_station.cpp`. Ver `firmware/README.md`.
-- `simulator/` — **capa 2, previsualización.** Modelo de estado determinista y servidor HTTP local (`127.0.0.1:8080`) para pruebas de UI y API.
+- `firmware/` — **capa 1, software que se flashea.** `server.cpp`, `sensor.cpp`, `node_bus.cpp`, `nano_node.cpp`. Ver `firmware/README.md`.
+- `simulator/` — **capa 2, previsualización.** Modelo local con reloj inyectable y servidor HTTP local (`127.0.0.1:8080`) para pruebas de UI y API. No define la política física de alarma.
 - `shared/` — contrato compartido: `api_state.schema.json` define el JSON base de `GET /api/state`.
-- `static/` — interfaz web compartida entre firmware y simulador (se empaqueta en la imagen LittleFS del firmware).
+- `static/` — interfaz web de desarrollo y simulación local con banco de pruebas (`#tabTests`).
+- `firmware/static/` — interfaz web limpia de producción (solo lectura, 3 pestañas) empaquetada en la imagen LittleFS.
 - `tests/` — pruebas nativas del modelo del simulador, de la API HTTP y de contrato contra el esquema.
 - `firmware/lib/esp8266/` — toolchain y bibliotecas Arduino del ESP8266 (submódulo); **no** se modifica salvo que sea estrictamente necesario.
 - `Documentacion/` — informe académico y material de documentación del proyecto.

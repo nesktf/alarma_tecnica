@@ -4,10 +4,10 @@
 
 El repositorio es un monorepo con dos capas separadas por una barrera de flasheo:
 
-- `firmware/`: **única capa que se flashea** en la NodeMCU ESP8266. `firmware/server.cpp` inicializa LittleFS/Wi-Fi, mide el sensor ultrasónico y sirve `/api/state` junto con los archivos web; `firmware/sensor.cpp` contiene el muestreo y el formateador del contrato. El build cruzado se controla desde `xmake.lua` en la **raíz** del repositorio (no existe `firmware/xmake.lua`).
-- `simulator/`: modelo local determinista de la placa y servidor HTTP de desarrollo (`127.0.0.1:8080`). **No** es un emulador Xtensa, **no** se flashea y no debe incorporarse al firmware.
-- `shared/api_state.schema.json`: contrato del JSON de `GET /api/state`. `alarm_system` es una clave base obligatoria en ambos entornos; `controls` y `logs` son extensiones del simulador marcadas `preview_only`.
-- `static/`: interfaz compartida entre el ESP8266 y el simulador; también se empaqueta en la imagen LittleFS.
+- `firmware/`: **única capa que se flashea** en la NodeMCU ESP8266. `firmware/server.cpp` inicializa LittleFS/Wi-Fi, mide el sensor ultrasónico, gestiona el bus RS485 (`node_bus.cpp`) y sirve `/api/state` junto con los archivos web; `firmware/sensor.cpp` contiene el muestreo y el formateador del contrato. El build cruzado se controla desde `xmake.lua` en la **raíz** del repositorio (no existe `firmware/xmake.lua`).
+- `simulator/`: modelo local con reloj inyectable y servidor HTTP de desarrollo (`127.0.0.1:8080`). **No** es un emulador Xtensa, **no** se flashea y no debe incorporarse al firmware.
+- `firmware/static/`: interfaz web limpia de producción (solo lectura, 3 pestañas: Mapa, Grilla y NodeMCU) empaquetada en la imagen LittleFS del ESP8266; sin código ni controles de prueba.
+- `static/`: interfaz completa de desarrollo para el simulador con banco de pruebas (`#tabTests`) y controles locales de inyección.
 - `tests/`: pruebas nativas del modelo (`test_simulator.py`), de la API HTTP y de contrato (`test_contract.py`).
 - `firmware/lib/esp8266/`: core Arduino ESP8266, toolchain y bibliotecas incorporadas; evitar cambios allí salvo que sean necesarios.
 - `redes-ii-vault/`: documentación de arquitectura y operación para Obsidian.
@@ -84,3 +84,12 @@ Antes de cada tarea:
 3. Si no hay una skill o MCP pertinente, continúa con el flujo habitual del proyecto.
 
 En la respuesta final, nombra brevemente las skills y MCP que hayas usado.
+
+## Skills compartidas por agentes
+
+Copilot CLI, Antigravity CLI y OpenCode descubren skills locales del proyecto en
+`.agents/skills/`. Para cambios de firmware o consultas sobre la placa, usa
+`.agents/skills/esp8266-project-context/SKILL.md` junto con la skill de referencia
+`.agents/skills/esp8266-nodemcu-30pin/SKILL.md`.
+
+Las reglas de arquitectura y build de este archivo prevalecen sobre ejemplos externos.

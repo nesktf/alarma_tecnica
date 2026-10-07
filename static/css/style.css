@@ -474,7 +474,8 @@ body {
   animation: pulse-svg-alarm 1s infinite alternate;
 }
 
-.sector-poly.no_response {
+.sector-poly.no_response,
+.sector-poly.no-response {
   fill: url(#diagonalHatch);
   stroke: #ff8800;
   stroke-width: 2.5px;
@@ -614,6 +615,37 @@ body {
   padding: 0.5rem 0.75rem;
   text-align: left;
 }
+.inspector-buttons-grid button.btn-disarm-action {
+  border-color: #10b981;
+  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  font-weight: 700;
+}
+.inspector-buttons-grid button.btn-disarm-action:hover {
+  background: #10b981;
+  color: #0f172a;
+}
+.inspector-buttons-grid button.btn-arm-action {
+  border-color: #f59e0b;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+  font-weight: 700;
+}
+.inspector-buttons-grid button.btn-arm-action:hover {
+  background: #f59e0b;
+  color: #0f172a;
+}
+.inspector-buttons-grid button.btn-panic-active {
+  border-color: #ef4444;
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.2);
+  font-weight: 700;
+  animation: pulse-border-red 1s infinite alternate;
+}
+.inspector-buttons-grid button.btn-panic-active:hover {
+  background: #ef4444;
+  color: #fff;
+}
 
 /* ==========================================================================
    TAB 2: Grilla de Sectores y Eventos
@@ -652,7 +684,8 @@ body {
   background: rgba(255, 104, 120, 0.08);
   animation: pulse-border-red 1s infinite alternate;
 }
-.sector-card.status-no_response {
+.sector-card.status-no_response,
+.sector-card.status-no-response {
   border-left-color: var(--orange);
 }
 .sector-card.status-projected {
@@ -1165,4 +1198,13 @@ body {
 @keyframes pulse-badge {
   from { opacity: 0.7; }
   to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

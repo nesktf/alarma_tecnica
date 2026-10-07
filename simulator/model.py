@@ -38,6 +38,7 @@ class DeviceModel:
         self._started_at = clock()
         self._lock = threading.RLock()
         self._last_sample_at: float | None = self._started_at
+        self._last_request = "/"
         self._wifi_available = True
         self._filesystem_mounts = True
         self._echo_available = True
@@ -48,6 +49,16 @@ class DeviceModel:
         self._alarm_state = "DISARMED"
         self._arming_until: float | None = None
         self._v_bus = 12.4
+        self._nodes_state = {
+            i: {
+                "node_id": i,
+                "distance_cm": 100 + (i * 10),
+                "status": 0x04,
+                "online": True,
+                "last_seen_ms": 0,
+            }
+            for i in range(1, 10)
+        }
         self._sectors = {
             sector_id: {
                 "id": sector_id,
@@ -69,7 +80,13 @@ class DeviceModel:
     def record_http_request(self, method: str, path: str) -> None:
         with self._lock:
             normalized = path if path else "/"
+            self._last_request = normalized
             self._log(f"HTTP {method.upper()} {normalized}")
+
+    @property
+    def last_request(self) -> str:
+        with self._lock:
+            return self._last_request
 
     @property
     def _boot_state(self) -> str:
@@ -91,6 +108,9 @@ class DeviceModel:
             else:
                 self._last_distance_cm = None
                 self._log(f"Echo timeout ({self.ECHO_TIMEOUT_US} us)")
+            for state in self._nodes_state.values():
+                if state["online"]:
+                    state["last_seen_ms"] = int((now - self._started_at) * 1000)
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -130,7 +150,7 @@ class DeviceModel:
                 "host": "127.0.0.1",
                 "port": 8080,
                 "base_url": "http://127.0.0.1:8080",
-                "last_request": "/",
+                "last_request": self._last_request,
                 "routes": [
                     "/",
                     "/api/state",
@@ -149,6 +169,9 @@ class DeviceModel:
             },
             "alarm_system": self._alarm_snapshot(now),
             "logs": list(self._logs),
+            "ws": {"connected": False, "port": 0},
+            "auth": {"authenticated": False, "method": "none"},
+            "nodes": list(self._nodes_state.values()),
         }
 
     def _alarm_snapshot(self, now: float) -> dict:
@@ -225,6 +248,9 @@ class DeviceModel:
         if state == "DISARMED":
             for sector in self._sectors.values():
                 sector["active"] = False
+                sector["motion"] = False
+            for node in self._nodes_state.values():
+                node["status"] = (node["status"] & ~0x01) | 0x04
 
         if previous_state != state:
             self._record_alarm_event(
@@ -260,6 +286,17 @@ class DeviceModel:
         self._alarm_state = "DISARMED"
         self._arming_until = None
         self._v_bus = 12.4
+        self._nodes_state = {
+            i: {
+                "node_id": i,
+                "distance_cm": 100 + (i * 10),
+                "status": 0x04,
+                "online": True,
+                "last_seen_ms": 0,
+            }
+            for i in range(1, 10)
+        }
+        self._last_request = "/"
         for sector in self._sectors.values():
             sector["motion"] = False
             sector["active"] = False
@@ -283,6 +320,7 @@ class DeviceModel:
             "filesystem_mounts",
             "reboot",
             "alarm_state",
+            "set_alarm_state",
             "v_bus",
             "toggle_motion",
             "trigger_emergency",
@@ -292,6 +330,9 @@ class DeviceModel:
         unknown = set(controls) - allowed
         if unknown:
             raise ControlError(f"Control desconocido: {', '.join(sorted(unknown))}.")
+
+        if "set_alarm_state" in controls and "alarm_state" not in controls:
+            controls["alarm_state"] = controls["set_alarm_state"]
 
         distance = self._distance_cm
         if "distance_cm" in controls:
@@ -406,6 +447,8 @@ class DeviceModel:
             sector_id = sector_actions["motion"]
             sector = self._sectors[sector_id]
             sector["motion"] = not sector["motion"]
+            node = self._nodes_state[sector_id]
+            node["status"] = 0x04 | (0x01 if sector["motion"] or sector["active"] else 0)
             self._record_alarm_event(
                 "warning" if sector["motion"] else "info",
                 "MOTION_ON" if sector["motion"] else "MOTION_OFF",
@@ -418,20 +461,38 @@ class DeviceModel:
 
         if "emergency" in sector_actions:
             sector_id = sector_actions["emergency"]
-            self._sectors[sector_id]["active"] = True
-            self._record_alarm_event(
-                "critical",
-                "EMERGENCY_TRIGGERED",
-                "Pulsador de emergencia",
-                "Pulsador virtual activado.",
-                sector_id,
-            )
-            self._raise_alarm("Pulsador de emergencia activado.", sector_id)
+            sector = self._sectors[sector_id]
+            sector["active"] = not sector["active"]
+            node = self._nodes_state[sector_id]
+            if sector["active"]:
+                node["status"] |= 0x01
+                self._record_alarm_event(
+                    "critical",
+                    "EMERGENCY_TRIGGERED",
+                    "Pulsador de emergencia",
+                    "Pulsador virtual activado.",
+                    sector_id,
+                )
+                self._raise_alarm("Pulsador de emergencia activado.", sector_id)
+            else:
+                if not sector["motion"]:
+                    node["status"] = (node["status"] & ~0x01) | 0x04
+                self._record_alarm_event(
+                    "info",
+                    "EMERGENCY_CLEARED",
+                    "Pulsador restablecido",
+                    "Pulsador virtual desactivado.",
+                    sector_id,
+                )
 
         if "no_response" in sector_actions:
             sector_id = sector_actions["no_response"]
             sector = self._sectors[sector_id]
             sector["no_response"] = not sector["no_response"]
+            node = self._nodes_state[sector_id]
+            node["online"] = not sector["no_response"]
+            if node["online"]:
+                node["last_seen_ms"] = int((now - self._started_at) * 1000)
             self._record_alarm_event(
                 "warning" if sector["no_response"] else "info",
                 "BUS_LOST" if sector["no_response"] else "BUS_RESTORED",

@@ -1,26 +1,29 @@
 {
-   "$schema": "http://json-schema.org/draft-07/schema#",
-   "$id": "https://redes-ii.local/schemas/api_state.schema.json",
-   "title": "GET /api/state contract",
-   "description": "Contract shared by the ESP8266 firmware (format_sensor_state in firmware/sensor.cpp) and the local simulator (simulator/model.py DeviceModel). Base keys must exist in both environments. The required alarm_system field is a fixed placeholder in firmware until physical alarm behavior is specified; the simulator provides demonstration scenarios. controls and logs are preview-only and are never emitted by firmware.",
-   "type": "object",
-   "required": [
-     "simulator",
-     "board",
-     "state",
-     "uptime_ms",
-     "wifi",
-     "filesystem",
-     "sensor",
-     "pins",
-     "limits",
-     "server",
-     "alarm_system"
-   ],
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://redes-ii.local/schemas/api_state.schema.json",
+  "title": "GET /api/state contract",
+  "description": "Shared state contract for the ESP8266 firmware and local simulator. Alarm values in firmware are placeholders until the physical alarm policy is approved. Simulator controls and logs are preview-only.",
+  "type": "object",
+  "required": [
+    "simulator",
+    "board",
+    "state",
+    "uptime_ms",
+    "wifi",
+    "filesystem",
+    "sensor",
+    "pins",
+    "limits",
+    "server",
+    "alarm_system",
+    "ws",
+    "auth",
+    "nodes"
+  ],
   "properties": {
     "simulator": {
       "type": "boolean",
-      "description": "True when served by the local simulator, false when served by the NodeMCU firmware."
+      "description": "True for the local software simulator and false for ESP8266 firmware."
     },
     "board": {
       "type": "string",
@@ -28,32 +31,27 @@
     },
     "state": {
       "type": "string",
-      "enum": ["running", "waiting_wifi", "halted_filesystem"],
-      "description": "Firmware boot/runtime state. waiting_wifi and halted_filesystem are terminal-ish states of the current firmware startup sequence."
+      "enum": ["running", "waiting_wifi", "halted_filesystem"]
     },
     "uptime_ms": {
       "type": "integer",
       "minimum": 0
     },
     "wifi": {
-      "type": "boolean",
-      "description": "STA link status. Firmware only reaches the running state with wifi true; the simulator can toggle it."
+      "type": "boolean"
     },
     "filesystem": {
-      "type": "boolean",
-      "description": "LittleFS mount status. Firmware halts when false."
+      "type": "boolean"
     },
     "sensor": {
       "type": "object",
       "required": ["valid", "distance_cm", "age_ms", "echo_timeout_us"],
       "properties": {
-        "valid": {
-          "type": "boolean"
-        },
+        "valid": {"type": "boolean"},
         "distance_cm": {
           "type": ["number", "null"],
           "minimum": 0,
-          "description": "Null when the echo timed out; never 0 for a timeout."
+          "description": "Null when no valid echo measurement is available."
         },
         "age_ms": {
           "type": ["integer", "null"],
@@ -70,22 +68,10 @@
       "type": "object",
       "required": ["trigger_gpio", "echo_gpio", "trigger_label", "echo_label"],
       "properties": {
-        "trigger_gpio": {
-          "type": "integer",
-          "const": 12
-        },
-        "echo_gpio": {
-          "type": "integer",
-          "const": 14
-        },
-        "trigger_label": {
-          "type": "string",
-          "const": "D6"
-        },
-        "echo_label": {
-          "type": "string",
-          "const": "D5"
-        }
+        "trigger_gpio": {"type": "integer", "const": 12},
+        "echo_gpio": {"type": "integer", "const": 14},
+        "trigger_label": {"type": "string", "const": "D6"},
+        "echo_label": {"type": "string", "const": "D5"}
       },
       "additionalProperties": false
     },
@@ -93,22 +79,10 @@
       "type": "object",
       "required": ["cpu_mhz", "flash_bytes", "dram_bytes", "iram_bytes"],
       "properties": {
-        "cpu_mhz": {
-          "type": "integer",
-          "const": 80
-        },
-        "flash_bytes": {
-          "type": "integer",
-          "const": 4194304
-        },
-        "dram_bytes": {
-          "type": "integer",
-          "const": 80192
-        },
-        "iram_bytes": {
-          "type": "integer",
-          "const": 65536
-        }
+        "cpu_mhz": {"type": "integer", "const": 80},
+        "flash_bytes": {"type": "integer", "const": 4194304},
+        "dram_bytes": {"type": "integer", "const": 80192},
+        "iram_bytes": {"type": "integer", "const": 65536}
       },
       "additionalProperties": false
     },
@@ -116,82 +90,84 @@
       "type": "object",
       "required": ["status", "host", "port", "base_url", "last_request", "routes"],
       "properties": {
-        "status": {
-          "type": "string",
-          "enum": ["running", "degraded"]
-        },
-        "host": {
-          "type": "string"
-        },
-        "port": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "base_url": {
-          "type": "string"
-        },
+        "status": {"type": "string", "enum": ["running", "degraded"]},
+        "host": {"type": "string"},
+        "port": {"type": "integer", "minimum": 0},
+        "base_url": {"type": "string"},
         "bind_url": {
           "type": "string",
-          "description": "Simulator only: actual bind address."
+          "description": "Simulator-only HTTP bind URL."
         },
         "virtual_url": {
           "type": "string",
-          "description": "Simulator only: virtual board URL."
+          "description": "Simulator-only virtual board URL."
         },
-        "last_request": {
-          "type": "string"
-        },
+        "last_request": {"type": "string"},
         "routes": {
           "type": "array",
-          "items": {
-            "type": "string"
-          }
+          "items": {"type": "string"}
         }
       },
       "additionalProperties": false
     },
     "controls": {
       "type": "object",
-      "description": "PREVIEW ONLY (simulator). Mirror of the accepted POST /api/controls inputs. Never emitted by the firmware.",
+      "description": "PREVIEW ONLY: simulator control values; never emitted by firmware.",
       "preview_only": true,
       "properties": {
-        "distance_cm": {"type": "number"},
+        "distance_cm": {"type": "number", "minimum": 2, "maximum": 400},
         "echo_available": {"type": "boolean"},
         "wifi_available": {"type": "boolean"},
         "filesystem_mounts": {"type": "boolean"},
         "sensor_min_cm": {"type": "number"},
-        "sensor_max_cm": {"type": "number"}
+        "sensor_max_cm": {"type": "number"},
+        "alarm_state": {
+          "type": "string",
+          "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
+        },
+        "set_alarm_state": {
+          "type": "string",
+          "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
+        },
+        "v_bus": {"type": "number", "minimum": 0},
+        "toggle_motion": {"type": "integer", "minimum": 1, "maximum": 5},
+        "trigger_emergency": {"type": "integer", "minimum": 1, "maximum": 5},
+        "toggle_no_response": {"type": "integer", "minimum": 1, "maximum": 5},
+        "reboot": {"type": "boolean"},
+        "reset_all": {"type": "boolean"}
       },
       "additionalProperties": false
     },
     "alarm_system": {
       "type": "object",
-      "description": "Required in firmware and simulator. Firmware currently emits fixed initial values only; no physical alarm policy or PIR integration is implemented. The simulator provides demonstration scenarios that do not define the physical policy.",
+      "description": "Base alarm status. Firmware values remain fixed placeholders until a physical policy is approved; simulator scenarios are demonstrations only.",
+      "required": ["state", "arming_remaining_s", "v_bus", "sectors"],
       "properties": {
         "state": {
           "type": "string",
           "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
         },
-        "arming_remaining_s": {"type": "number"},
-        "v_bus": {"type": "number"},
+        "arming_remaining_s": {"type": "number", "minimum": 0},
+        "v_bus": {"type": "number", "minimum": 0},
         "v_bus_status": {
           "type": "string",
           "enum": ["normal", "warning", "alarm"]
         },
         "active_areas": {
           "type": "array",
-          "items": {"type": "integer"}
+          "items": {"type": "integer", "minimum": 1}
         },
         "no_response_areas": {
           "type": "array",
-          "items": {"type": "integer"}
+          "items": {"type": "integer", "minimum": 1}
         },
         "sectors": {
           "type": "array",
           "items": {
             "type": "object",
+            "required": ["id", "name", "node", "has_panic", "motion", "active", "no_response", "status"],
             "properties": {
-              "id": {"type": "integer"},
+              "id": {"type": "integer", "minimum": 1},
               "name": {"type": "string"},
               "node": {"type": "string"},
               "has_panic": {"type": "boolean"},
@@ -201,24 +177,71 @@
               "projected": {"type": "boolean"},
               "status": {
                 "type": "string",
-                "enum": ["normal", "motion", "alarm", "no_response"]
+                "enum": ["normal", "motion", "alarm", "no_response", "projected"]
               }
             },
-            "required": ["id", "name", "node", "status"]
+            "additionalProperties": false
           }
         },
         "recent_events": {
           "type": "array",
-          "items": {"type": "object"}
+          "items": {
+            "type": "object",
+            "required": ["ts", "severity", "area", "area_name", "code", "event", "details"],
+            "properties": {
+              "ts": {"type": "string"},
+              "severity": {"type": "string", "enum": ["info", "warning", "critical"]},
+              "area": {"type": ["integer", "null"]},
+              "area_name": {"type": "string"},
+              "code": {"type": "string"},
+              "event": {"type": "string"},
+              "details": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
         }
       },
-      "additionalProperties": true
+      "additionalProperties": false
+    },
+    "ws": {
+      "type": "object",
+      "required": ["connected", "port"],
+      "properties": {
+        "connected": {"type": "boolean"},
+        "port": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "auth": {
+      "type": "object",
+      "required": ["authenticated", "method"],
+      "properties": {
+        "authenticated": {"type": "boolean"},
+        "method": {"type": "string", "enum": ["none", "basic"]}
+      },
+      "additionalProperties": false
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node_id", "distance_cm", "status", "online", "last_seen_ms"],
+        "properties": {
+          "node_id": {"type": "integer", "minimum": 1, "maximum": 9},
+          "distance_cm": {"type": ["number", "null"], "minimum": 0},
+          "status": {"type": "integer", "minimum": 0, "maximum": 255},
+          "online": {"type": "boolean"},
+          "last_seen_ms": {"type": ["integer", "null"], "minimum": 0}
+        },
+        "additionalProperties": false
+      }
     },
     "logs": {
       "type": "array",
-      "description": "PREVIEW ONLY (simulator). Ring buffer of simulator events.",
+      "description": "PREVIEW ONLY: volatile simulator activity log.",
       "preview_only": true,
       "items": {"type": "string"}
     }
-  }
+  },
+  "additionalProperties": false
 }

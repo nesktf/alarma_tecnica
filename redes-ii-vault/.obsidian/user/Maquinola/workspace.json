@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "funcionalidades-pendientes.md",
+                "file": "Arquitectura/Simulacion y arquitectura del sistema.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "funcionalidades-pendientes"
+              "title": "Simulacion y arquitectura del sistema"
             }
           }
         ]
@@ -191,13 +191,14 @@
   },
   "active": "29eee59f5c717604",
   "lastOpenFiles": [
-    ".obsidian/graph.json",
+    "plan migracion 2 capas.md",
     "funcionalidades-pendientes.md",
     "Arquitectura/Simulacion y arquitectura del sistema.md",
-    "Arquitectura",
     ".obsidian/workspace.json",
-    ".obsidian/community-plugins.json",
+    ".obsidian/graph.json",
     ".obsidian",
+    "Arquitectura",
+    ".obsidian/community-plugins.json",
     ".trash/.trash/.obsidian/hola.md",
     ".trash/test.md",
     ".trash/.trash/.obsidian",

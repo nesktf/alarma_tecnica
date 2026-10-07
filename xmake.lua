@@ -60,9 +60,13 @@ toolchain("avr")
             for _, base in ipairs(candidates) do
                 if os.isdir(base) then
                     local match = os.files(path.join(base, "**/bin/avr-gcc"))
-                        -- Take the highest version found, not the first
-                        table.sort(match, function(a, b) return a > b end)
                     if match and #match > 0 then
+                        import("core.base.semver")
+                        table.sort(match, function(a, b)
+                            local ver_a = a:match("(%d+%.%d+%.%d+)") or "0.0.0"
+                            local ver_b = b:match("(%d+%.%d+%.%d+)") or "0.0.0"
+                            return semver.compare(ver_a, ver_b) > 0
+                        end)
                         bindir = path.directory(match[1])
                         break
                     elseif os.isfile(path.join(base, "avr-gcc")) then
@@ -181,6 +185,15 @@ rule_end()
 
 rule("avr_nano.config")
     on_load(function (target)
+        import("core.project.config")
+        local mcu = config.get("nano_mcu") or "atmega328p"
+        local mcu_def = "__AVR_" .. mcu:upper() .. "__"
+        if mcu == "atmega328p" then
+            mcu_def = "__AVR_ATmega328P__"
+        elseif mcu == "atmega168" then
+            mcu_def = "__AVR_ATmega168__"
+        end
+
         target:set("languages", "gnu11", "gnuxx11")
 
         target:add("defines",
@@ -188,11 +201,11 @@ rule("avr_nano.config")
             "ARDUINO=10819",
             "ARDUINO_AVR_NANO",
             "ARDUINO_ARCH_AVR",
-            "__AVR_ATmega328P__"
+            mcu_def
         )
 
         target:add("cxflags",
-            "-mmcu=atmega328p",
+            "-mmcu=" .. mcu,
             "-Os",
             "-g",
             "-Wall",
@@ -212,14 +225,14 @@ rule("avr_nano.config")
         )
 
         target:add("asflags",
-            "-mmcu=atmega328p",
+            "-mmcu=" .. mcu,
             "-x", "assembler-with-cpp",
             "-flto",
             {force = true}
         )
 
         target:add("ldflags",
-            "-mmcu=atmega328p",
+            "-mmcu=" .. mcu,
             "-Os",
             "-g",
             "-flto",
@@ -298,6 +311,7 @@ target("server")
 
     add_files("firmware/server.cpp")
     add_files("firmware/sensor.cpp")
+    add_files("firmware/node_bus.cpp")
 
     add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
@@ -492,8 +506,11 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
         -- 2. Generate LittleFS .bin filesystem image
         local mklittlefs_tool = path.join(pdir, "firmware/lib/esp8266/tools", "mklittlefs/mklittlefs")
         local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
-        local static_dir = path.join(pdir, "static")
-        print("Creating LittleFS image: %s", fs_bin_path)
+        local static_dir = path.join(pdir, "firmware/static")
+        if not os.isdir(static_dir) then
+            static_dir = path.join(pdir, "static")
+        end
+        print("Creating LittleFS image from %s: %s", static_dir, fs_bin_path)
         os.execv(mklittlefs_tool, {
             "-c", static_dir,
             "-p", "256",
@@ -547,7 +564,7 @@ target("node_station")
     set_toolchains("avr")
     add_rules("avr_nano.config")
 
-    add_files("firmware/node_station.cpp")
+    add_files("firmware/nano_node.cpp")
     add_deps("nano_core", "arduino_rs485")
 
     after_build(function (target)
@@ -613,17 +630,18 @@ task("flash")
         local mcu = option.get("mcu") or "atmega328p"
         local programmer = option.get("programmer") or "arduino"
 
-        -- Build appropriate target or all default targets
+        local flasher_tool = path.join(pdir, "firmware/tools/flasher.py")
+        
+        -- Build appropriate target or all targets
         if target_name == "esp8266" or target_name == "server" or target_name == "nodemcu" then
             os.exec("xmake build server")
         elseif target_name == "node_station" or target_name == "nano" or target_name == "arduino" or target_name == "avr" then
             os.exec("xmake build node_station")
         else
-            -- auto: build both
+            -- auto: build default targets
             os.exec("xmake")
         end
 
-        local flasher_tool = path.join(pdir, "firmware/tools/flasher.py")
         local args = {flasher_tool, "-t", target_name}
 
         if port and #port > 0 then

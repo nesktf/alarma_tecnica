@@ -48,7 +48,7 @@ class AlarmAudioSynthesizer {
       }
     }
     if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
     }
   }
 
@@ -62,7 +62,9 @@ class AlarmAudioSynthesizer {
   }
 
   playSiren() {
-    if (!this.enabled || !this.ctx || this.isSirenPlaying) return;
+    if (!this.enabled) return;
+    this.initContext();
+    if (!this.ctx || this.isSirenPlaying) return;
     try {
       this.isSirenPlaying = true;
       const now = this.ctx.currentTime;
@@ -91,6 +93,7 @@ class AlarmAudioSynthesizer {
       this.sirenLfo.start(now);
       this.sirenOsc1.start(now);
     } catch (e) {
+      this.isSirenPlaying = false;
       console.warn("Audio warning:", e);
     }
   }
@@ -99,16 +102,19 @@ class AlarmAudioSynthesizer {
     if (!this.isSirenPlaying) return;
     try {
       if (this.sirenOsc1) {
-        this.sirenOsc1.stop();
-        this.sirenOsc1.disconnect();
+        try { this.sirenOsc1.stop(); } catch (_) {}
+        try { this.sirenOsc1.disconnect(); } catch (_) {}
       }
       if (this.sirenLfo) {
-        this.sirenLfo.stop();
-        this.sirenLfo.disconnect();
+        try { this.sirenLfo.stop(); } catch (_) {}
+        try { this.sirenLfo.disconnect(); } catch (_) {}
       }
+    } finally {
       this.isSirenPlaying = false;
-    } catch (e) {
-      // Ignorar si ya estaba desconectado
+      this.sirenOsc1 = null;
+      this.sirenLfo = null;
+      this.sirenGain = null;
+      this.sirenLfoGain = null;
     }
   }
 
@@ -178,6 +184,7 @@ const el = {
   inspectorPanicStatus: byId("inspectorPanicStatus"),
   inspectorCommStatus: byId("inspectorCommStatus"),
   inspectorSimActions: byId("inspectorSimActions"),
+  inspectorBtnCentralState: byId("inspectorBtnCentralState"),
   inspectorBtnToggleMotion: byId("inspectorBtnToggleMotion"),
   inspectorBtnTriggerPanic: byId("inspectorBtnTriggerPanic"),
   inspectorBtnToggleComm: byId("inspectorBtnToggleComm"),
@@ -382,13 +389,15 @@ function setupMapInteractions() {
   }
 
   // Toggle de visibilidad de plano arquitectónico de fondo
-  el.toggleBlueprintImg.addEventListener("change", (e) => {
-    el.blueprintImg.style.display = e.target.checked ? "block" : "none";
-  });
+  if (el.toggleBlueprintImg && el.blueprintImg) {
+    el.toggleBlueprintImg.addEventListener("change", (e) => {
+      el.blueprintImg.style.display = e.target.checked ? "block" : "none";
+    });
+  }
 
   // Toggle de sectores proyectados
-  el.toggleProjectedSectors.addEventListener("change", (e) => {
-    const isChecked = e.target.checked;
+  function updateProjectedVisibility() {
+    const isChecked = !!(el.toggleProjectedSectors && el.toggleProjectedSectors.checked);
     for (let sid = 6; sid <= 9; sid++) {
       const g = byId(`mapSector-${sid}`);
       if (g) {
@@ -396,7 +405,12 @@ function setupMapInteractions() {
         g.style.opacity = isChecked ? "0.85" : "0.3";
       }
     }
-  });
+  }
+
+  if (el.toggleProjectedSectors) {
+    el.toggleProjectedSectors.addEventListener("change", updateProjectedVisibility);
+    updateProjectedVisibility();
+  }
 }
 
 function selectSector(sectorId) {
@@ -458,11 +472,26 @@ function renderSectorInspector(sectorId, state) {
   el.inspectorCommStatus.textContent = meta.id === 1 ? "Local (Arduino Nano)" : secData.no_response ? "❌ Timeout de respuesta" : "🟢 Conectado (RS485)";
 
   // Configuración de botones de simulación del inspector
+  if (el.inspectorBtnCentralState) {
+    const isAlarmActive = alarm.state === "ALARM" || alarm.state === "ARMED" || alarm.state === "ARMING";
+    if (isAlarmActive) {
+      el.inspectorBtnCentralState.textContent = "🟢 Desarmar Alarma Central";
+      el.inspectorBtnCentralState.className = "btn-disarm-action";
+      el.inspectorBtnCentralState.onclick = () => sendControls({ alarm_state: "DISARMED" });
+    } else {
+      el.inspectorBtnCentralState.textContent = "🟡 Armar Sistema";
+      el.inspectorBtnCentralState.className = "btn-arm-action";
+      el.inspectorBtnCentralState.onclick = () => sendControls({ alarm_state: "ARMED" });
+    }
+  }
+
   el.inspectorBtnToggleMotion.textContent = secData.motion ? "🛑 Cancelar Movimiento PIR" : "🏃 Simular Movimiento (PIR)";
   el.inspectorBtnToggleMotion.onclick = () => sendControls({ toggle_motion: meta.id });
 
   if (meta.hasPanic) {
     el.inspectorBtnTriggerPanic.hidden = false;
+    el.inspectorBtnTriggerPanic.textContent = secData.active ? "🟢 Restablecer Emergencia" : "🚨 Pulsar Emergencia";
+    el.inspectorBtnTriggerPanic.className = secData.active ? "btn-panic-active" : "contrast outline";
     el.inspectorBtnTriggerPanic.onclick = () => sendControls({ trigger_emergency: meta.id });
   } else {
     el.inspectorBtnTriggerPanic.hidden = true;
@@ -577,16 +606,23 @@ function renderBoardAndSensor(state) {
 
   // Sensor ultrasónico
   const sensor = state.sensor || {};
+  const meterParent = el.meter ? (el.meter.closest("[role='meter']") || el.meter.parentElement) : null;
   if (sensor.valid && typeof sensor.distance_cm === "number") {
     el.distance.textContent = sensor.distance_cm.toFixed(1);
     const pct = Math.min(100, Math.max(0, (sensor.distance_cm / 400) * 100));
     el.meter.style.width = `${pct}%`;
+    if (meterParent) {
+      meterParent.setAttribute("aria-valuenow", sensor.distance_cm.toFixed(1));
+    }
     el.sampleAge.textContent = `${sensor.age_ms || 0} ms atrás`;
     el.sensorMessage.textContent = `Medición válida dentro del rango (2 – 400 cm).`;
     if (el.led) el.led.style.background = "#50d890";
   } else {
     el.distance.textContent = "—";
     el.meter.style.width = "0%";
+    if (meterParent) {
+      meterParent.setAttribute("aria-valuenow", "0");
+    }
     el.sampleAge.textContent = "Sin lectura";
     el.sensorMessage.textContent = "Sin eco o sensor deshabilitado.";
     if (el.led) el.led.style.background = "#ff6878";
@@ -799,12 +835,34 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTestBench();
 
   // Control de sonido
-  el.soundToggleBtn.addEventListener("click", () => {
-    const isEnabled = audio.toggle();
-    el.soundIcon.textContent = isEnabled ? "🔊" : "🔇";
-    el.soundText.textContent = isEnabled ? "Activo" : "Silenciado";
-    el.soundToggleBtn.className = isEnabled ? "sound-toggle-btn good" : "sound-toggle-btn secondary outline";
+  if (el.soundToggleBtn) {
+    el.soundToggleBtn.addEventListener("click", () => {
+      const isEnabled = audio.toggle();
+      el.soundIcon.textContent = isEnabled ? "🔊" : "🔇";
+      el.soundText.textContent = isEnabled ? "Activo" : "Silenciado";
+      el.soundToggleBtn.className = isEnabled ? "sound-toggle-btn good" : "sound-toggle-btn secondary outline";
+      if (isEnabled && latestState && latestState.alarm_system && latestState.alarm_system.state === "ALARM") {
+        audio.playSiren();
+      }
+    });
+  }
+
+  // Interacción para reanudar AudioContext si el navegador lo suspendió
+  document.addEventListener("click", () => {
+    if (audio.enabled && audio.ctx && audio.ctx.state === "suspended") {
+      audio.ctx.resume().catch(() => {});
+    }
   });
+
+  // Atajo rápido en semáforo central para alternar armado / desarmado
+  if (el.centralTrafficLight) {
+    el.centralTrafficLight.style.cursor = "pointer";
+    el.centralTrafficLight.title = "Click para alternar armado / desarmado central";
+    el.centralTrafficLight.addEventListener("click", () => {
+      const isArmActive = latestState && latestState.alarm_system && (latestState.alarm_system.state === "ALARM" || latestState.alarm_system.state === "ARMED" || latestState.alarm_system.state === "ARMING");
+      sendControls({ alarm_state: isArmActive ? "DISARMED" : "ARMED" });
+    });
+  }
 
   // Selector de fuente de estado
   if (el.applySourceButton) {

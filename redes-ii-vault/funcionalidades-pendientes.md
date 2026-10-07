@@ -21,13 +21,18 @@ Este documento es el backlog técnico del sistema de alarma. Distingue lo que ya
 - [x] Firmware ESP8266 sirve archivos estáticos desde LittleFS.
 - [x] Muestreo ultrasónico cada segundo con timeout de 30 ms.
 - [x] Endpoint `GET /api/state` para compartir la medición y estado de firmware con la interfaz.
-- [x] Dashboard compartido entre NodeMCU y el simulador local.
-- [x] Simulador local para distancia, timeout Echo, fallo de Wi-Fi, fallo LittleFS y reinicio.
-- [x] Pruebas nativas del modelo, API HTTP y **contrato** contra `shared/api_state.schema.json`.
+- [x] Dashboard compartido de 4 pestañas (Mapa, Grilla/Eventos, Dispositivo NodeMCU, Banco de Pruebas).
+- [x] Simulador local con modelo determinista para distancia, timeout Echo, fallos de arranque, bus RS485 y estados de alarma.
+- [x] Protocolo binario RS485 maestro/esclavo y framing CRC-16/CCITT-FALSE definidos en `firmware/protocol.h` y validados con pruebas compartidas.
+- [x] Interfaz web restaurada con síntesis de audio Web Audio API, desarmado directo en inspector y sectores proyectados ocultos por defecto.
+- [x] Accesibilidad (`prefers-reduced-motion`, `role="meter"` con `aria-valuenow`) y selectores de estado normalizados.
+- [x] Pruebas nativas del modelo, API HTTP y **contrato** contra `shared/api_state.schema.json` (30/30 tests OK).
 - [x] Imágenes `build/server.bin` y `build/littlefs.bin` para flasheo (build cruzado Xtensa desde la raíz).
 - [x] Estructura en dos capas: `firmware/` (se flashea) y `simulator/` (previsualización), con el submódulo ESP8266 en `firmware/lib/esp8266`.
 - [x] Pines del sensor actualizados a D6/GPIO12 y D5/GPIO14 para la variante NodeMCU.
-- [ ] Confirmar en placa el sensor/cableado y el divisor o adaptador de nivel de Echo.
+- [ ] Confirmar en placa física el sensor/cableado y el divisor o adaptador de nivel de Echo.
+- [ ] Integrar el polling de recepción RS485 en el bucle principal de `firmware/server.cpp`.
+- [ ] Implementar los anillos de log binarios con cifrado AES-128 CTR en LittleFS para el firmware.
 
 ## Flujo de trabajo: crecer firmware y simulador a la par
 

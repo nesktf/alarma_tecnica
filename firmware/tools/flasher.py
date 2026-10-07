@@ -57,6 +57,7 @@ def reset_avr_via_dtr(port_name):
 
 def probe_stk500(port_name, baudrate=57600):
     """Probe if device is an AVR running STK500/Optiboot bootloader."""
+    ser = None
     try:
         ser = serial.Serial(port_name, baudrate=baudrate, timeout=0.25)
         # Pulse DTR to reset Arduino
@@ -75,12 +76,16 @@ def probe_stk500(port_name, baudrate=57600):
             ser.write(b"\x30\x20")  # Cmnd_STK_GET_SYNC, Sync_CRC_EOP
             resp = ser.read(2)
             if resp == b"\x14\x10":  # Resp_STK_INSYNC, Resp_STK_OK
-                ser.close()
                 return True
             time.sleep(0.05)
-        ser.close()
     except Exception:
         pass
+    finally:
+        if ser and ser.is_open:
+            try:
+                ser.close()
+            except Exception:
+                pass
     return False
 
 
@@ -88,9 +93,7 @@ def probe_esp8266(port_name, baudrate=115200):
     """Probe if device is an ESP8266 in bootloader mode or responds to ROM sync."""
     try:
         import esptool
-        esp = esptool.ESP8266ROM(port_name, baudrate=baudrate)
-        esp._port = serial.Serial(port_name)
-        esp.connect("default_reset", connect_mode="default_reset")
+        esp = esptool.ESPLoader.detect_chip(port_name, baudrate)
         chip_name = esp.get_chip_description()
         esp._port.close()
         if "ESP8266" in chip_name or "ESP" in chip_name:
@@ -98,6 +101,7 @@ def probe_esp8266(port_name, baudrate=115200):
     except Exception:
         pass
     return False
+
 
 
 def detect_device_and_port(given_port=None):
@@ -152,8 +156,9 @@ def detect_device_and_port(given_port=None):
         print("Detected ESP8266 board via ROM bootloader sync.")
         return "esp8266", target_port, 115200
 
-    print("Could not definitively identify device type via sync. Defaulting to ESP8266.")
-    return "esp8266", target_port, 115200
+    print("Error: Could not definitively identify device type on port. Please specify --target (esp8266 or nano).", file=sys.stderr)
+    sys.exit(1)
+
 
 
 def flash_esp8266(port, baud, esp_bin, fs_bin=None, flash_all=False):

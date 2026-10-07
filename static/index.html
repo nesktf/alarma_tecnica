@@ -185,28 +185,28 @@
                 <!-- ================= SECTORES PROYECTADOS ================= -->
 
                 <!-- Sector 6: Biblioteca (Proyectado) -->
-                <g id="mapSector-6" class="map-sector-group projected-group" data-sector-id="6" opacity="0.3">
+                <g id="mapSector-6" class="map-sector-group projected-group" data-sector-id="6" opacity="0.3" style="display: none;">
                   <rect id="area-6" class="sector-poly projected" x="145" y="245" width="85" height="90" rx="4" />
                   <text x="187" y="285" text-anchor="middle" class="sector-title-proj">ZONA 6: Biblioteca</text>
                   <text x="187" y="302" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
                 </g>
 
                 <!-- Sector 7: Preceptoría 1 (Proyectado) -->
-                <g id="mapSector-7" class="map-sector-group projected-group" data-sector-id="7" opacity="0.3">
+                <g id="mapSector-7" class="map-sector-group projected-group" data-sector-id="7" opacity="0.3" style="display: none;">
                   <rect id="area-7" class="sector-poly projected" x="235" y="65" width="90" height="60" rx="4" />
                   <text x="280" y="95" text-anchor="middle" class="sector-title-proj">ZONA 7: Precept. 1</text>
                   <text x="280" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
                 </g>
 
                 <!-- Sector 8: Preceptoría 2 (Proyectado) -->
-                <g id="mapSector-8" class="map-sector-group projected-group" data-sector-id="8" opacity="0.3">
+                <g id="mapSector-8" class="map-sector-group projected-group" data-sector-id="8" opacity="0.3" style="display: none;">
                   <rect id="area-8" class="sector-poly projected" x="335" y="65" width="90" height="60" rx="4" />
                   <text x="380" y="95" text-anchor="middle" class="sector-title-proj">ZONA 8: Precept. 2</text>
                   <text x="380" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
                 </g>
 
                 <!-- Sector 9: Preceptoría 3 (Proyectado) -->
-                <g id="mapSector-9" class="map-sector-group projected-group" data-sector-id="9" opacity="0.3">
+                <g id="mapSector-9" class="map-sector-group projected-group" data-sector-id="9" opacity="0.3" style="display: none;">
                   <rect id="area-9" class="sector-poly projected" x="435" y="65" width="70" height="60" rx="4" />
                   <text x="470" y="95" text-anchor="middle" class="sector-title-proj">ZONA 9</text>
                   <text x="470" y="110" text-anchor="middle" class="sector-sub-proj">(Proyectado)</text>
@@ -264,6 +264,9 @@
               <div id="inspectorSimActions" class="inspector-actions">
                 <p class="eyebrow">ACCIONES DE PRUEBA (SIMULADOR)</p>
                 <div class="inspector-buttons-grid">
+                  <button id="inspectorBtnCentralState" class="good outline" type="button">
+                    🟢 Desarmar Alarma Central
+                  </button>
                   <button id="inspectorBtnToggleMotion" class="secondary outline" type="button">
                     🏃 Simular Movimiento (PIR)
                   </button>
