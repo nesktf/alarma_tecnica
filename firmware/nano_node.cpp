@@ -1,136 +1,110 @@
-/**
- * Firmware para Arduino Nano (ATmega328P) — Nodo esclavo del bus RS485
- *
- * Protocolo de comunicación:
- *   Maestro (ESP8266) envía:  1 byte  = 0xB0 | node_id
- *   Esclavo (Nano) responde:   7 bytes = sensor_packet_t (sync + node_id + distance + status + crc)
- *
- * El Nano lee su sensor ultrasónico y responde con la medición actual.
- * El cálculo de CRC-16-CCITT es idéntico al del ESP8266 (protocolo.h).
- */
-
 #include <stdint.h>
-
-// ---------------------------------------------------------------------------
-// Configuración del nodo
-// ---------------------------------------------------------------------------
+#include <Arduino.h>
+#include "config.h"
+#include "protocol.h"
 
 #ifndef NANO_NODE_ID
-#define NANO_NODE_ID        0x01        // ID único del nodo (1..9, configurable vía build flag)
+#define NANO_NODE_ID SEC_AUTOMOTORES
 #endif
 
-#define NANO_TRIG_PIN       9
-#define NANO_ECHO_PIN       10
-#define NANO_SOUNVEL        0.034f      // cm/us
-
-#ifndef NANO_DE_PIN
-#define NANO_DE_PIN         2           // Pin DE/!RE opcional del MAX485 en Nano
+#ifndef HAS_PANIC_BUTTON
+#if (NANO_NODE_ID == SEC_TALLER || NANO_NODE_ID == SEC_VICEDIRECCION)
+#define HAS_PANIC_BUTTON 1
+#else
+#define HAS_PANIC_BUTTON 0
 #endif
-
-// Bitmask de estado del nodo
-#define NANO_STATUS_ALARM   0x01        // Bit 0: condición de alarma
-#define NANO_STATUS_ERROR   0x02        // Bit 1: error de sensor (timeout)
-#define NANO_STATUS_HB      0x04        // Bit 2: heartbeat (se envía en cada paquete)
+#endif
 
 static float cached_distance_cm = -1.0f;
 static unsigned long last_sample_time = 0;
-
-// ---------------------------------------------------------------------------
-// CRC-16-CCITT (XModem) — idéntico al del ESP8266
-// ---------------------------------------------------------------------------
-
-static uint16_t calculate_crc16(const uint8_t *data, uint16_t len) {
-    uint16_t crc = 0;
-    for (uint16_t i = 0; i < len; i++) {
-        crc ^= (uint16_t)data[i] << 8;
-        for (uint8_t j = 0; j < 8; j++) {
-            if (crc & 0x8000) {
-                crc = (crc << 1) ^ 0x1021;
-            } else {
-                crc <<= 1;
-            }
-        }
-    }
-    return crc;
-}
-
-// ---------------------------------------------------------------------------
-// Lectura del sensor ultrasónico
-// ---------------------------------------------------------------------------
+static bool latched_motion = false;
+static bool latched_panic = false;
+static bool sensor_timeout_error = false;
 
 static float read_ultrasonic() {
-    digitalWrite(NANO_TRIG_PIN, LOW);
+    digitalWrite(SLAVE_TRIG_PIN, LOW);
     delayMicroseconds(2);
-    digitalWrite(NANO_TRIG_PIN, HIGH);
-    delayMicroseconds(5);
-    digitalWrite(NANO_TRIG_PIN, LOW);
+    digitalWrite(SLAVE_TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(SLAVE_TRIG_PIN, LOW);
 
-    unsigned long duration = pulseIn(NANO_ECHO_PIN, HIGH, 30000);
-    if (!duration) return -1.0f; // timeout
-    return static_cast<float>(duration) * NANO_SOUNVEL / 2.0f;
-}
-
-static void poll_ultrasonic_async() {
-    unsigned long now = millis();
-    if (now - last_sample_time >= 500) { // muestreo cada 500 ms
-        last_sample_time = now;
-        cached_distance_cm = read_ultrasonic();
+    unsigned long duration = pulseIn(SLAVE_ECHO_PIN, HIGH, 30000UL);
+    if (!duration) {
+        return -1.0f;
     }
+    return (float)duration * 0.034f / 2.0f;
 }
 
-// ---------------------------------------------------------------------------
-// Envío de la trama binaria
-// ---------------------------------------------------------------------------
+static void poll_inputs() {
+    unsigned long now = millis();
+    if (now - last_sample_time < 100) return;
+    last_sample_time = now;
 
-static void send_packet(uint16_t distance_cm, uint8_t status) {
-    uint8_t raw[7];
-    raw[0] = 0xAA;                    // sync
-    raw[1] = NANO_NODE_ID;            // node_id
-    raw[2] = distance_cm & 0xFF;      // distance (LSB)
-    raw[3] = (distance_cm >> 8) & 0xFF; // distance (MSB)
-    raw[4] = status;                  // status
+    float dist = read_ultrasonic();
+    if (dist >= 0.0f) {
+        cached_distance_cm = dist;
+        sensor_timeout_error = false;
+        if (dist < (float)MOTION_DISTANCE_THRESHOLD_CM) {
+            latched_motion = true;
+        }
+    } else {
+        sensor_timeout_error = true;
+    }
 
-    // CRC sobre los primeros 5 bytes
-    uint16_t crc = calculate_crc16(raw, 5);
-    raw[5] = crc & 0xFF;              // CRC (LSB)
-    raw[6] = (crc >> 8) & 0xFF;       // CRC (MSB)
+    #if HAS_PANIC_BUTTON
+    if (digitalRead(SLAVE_PANIC_PIN) == LOW) {
+        latched_panic = true;
+    }
+    #endif
+}
 
-    digitalWrite(NANO_DE_PIN, HIGH);
-    Serial.write(raw, 7);
+static void send_response_packet() {
+    rs485_packet_t pkt;
+    pkt.sync = RS485_SYNC_BYTE;
+    pkt.node_id = (uint8_t)NANO_NODE_ID;
+    pkt.subnode_count = 1;
+
+    uint16_t dist = (cached_distance_cm >= 0.0f) ? (uint16_t)cached_distance_cm : 0;
+    pkt.distance_cm = dist;
+
+    uint8_t flags = STATUS_FLAG_HB;
+    if (latched_motion) flags |= STATUS_FLAG_MOTION;
+    if (latched_panic)  flags |= STATUS_FLAG_PANIC;
+    if (sensor_timeout_error) flags |= STATUS_FLAG_ERROR;
+    pkt.status_flags = flags;
+
+    pkt.crc = calculate_crc16((const uint8_t *)&pkt, 6);
+
+    digitalWrite(SLAVE_RS485_DE_PIN, HIGH);
+    delayMicroseconds(50);
+    Serial.write((const uint8_t *)&pkt, sizeof(pkt));
     Serial.flush();
-    digitalWrite(NANO_DE_PIN, LOW);
-}
+    digitalWrite(SLAVE_RS485_DE_PIN, LOW);
 
-// ---------------------------------------------------------------------------
-// Setup / Loop
-// ---------------------------------------------------------------------------
+    latched_motion = false;
+    latched_panic = false;
+}
 
 void setup() {
-    pinMode(NANO_TRIG_PIN, OUTPUT);
-    pinMode(NANO_ECHO_PIN, INPUT);
-    pinMode(NANO_DE_PIN, OUTPUT);
-    digitalWrite(NANO_DE_PIN, LOW);
+    pinMode(SLAVE_TRIG_PIN, OUTPUT);
+    pinMode(SLAVE_ECHO_PIN, INPUT);
+    pinMode(SLAVE_RS485_DE_PIN, OUTPUT);
+    digitalWrite(SLAVE_RS485_DE_PIN, LOW);
+
+    #if HAS_PANIC_BUTTON
+    pinMode(SLAVE_PANIC_PIN, INPUT_PULLUP);
+    #endif
+
     Serial.begin(9600);
 }
 
 void loop() {
-    poll_ultrasonic_async();
+    poll_inputs();
 
-    // Esperar comando de polling del maestro
-    if (Serial.available() >= 1) {
-        uint8_t cmd = Serial.read();
-
-        // Verificar que es un comando de polling válido para este nodo
-        if ((cmd & 0xF0) == 0xB0 && (cmd & 0x0F) == NANO_NODE_ID) {
-            float dist = cached_distance_cm;
-            uint16_t distance_cm = (dist >= 0.0f) ? static_cast<uint16_t>(dist) : 0;
-            uint8_t status = NANO_STATUS_HB;
-
-            if (dist < 0.0f) {
-                status |= NANO_STATUS_ERROR; // timeout del sensor
-            }
-
-            send_packet(distance_cm, status);
+    while (Serial.available() > 0) {
+        uint8_t cmd = (uint8_t)Serial.read();
+        if ((cmd & 0xF0) == RS485_POLL_CMD_PREFIX && (cmd & 0x0F) == NANO_NODE_ID) {
+            send_response_packet();
         }
     }
 }

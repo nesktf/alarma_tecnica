@@ -20,8 +20,8 @@ from pathlib import Path
 from simulator.model import DeviceModel
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_PATH = PROJECT_ROOT / "shared" / "api_state.schema.json"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCHEMA_PATH = Path(__file__).resolve().parent / "api_state.schema.json"
 
 
 class _Schema:

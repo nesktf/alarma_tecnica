@@ -16,10 +16,10 @@ toolchain("xtensa-lx106-elf")
     local _bindir = path.join(pdir, "firmware/lib", "esp8266", "tools", "xtensa-lx106-elf", "bin")
     local _abs = function(name)
         local full = path.join(_bindir, name)
-        if not os.isfile(full) then
-            raise("xtensa toolchain missing: " .. full)
+        if os.isfile(full) then
+            return full
         end
-        return full
+        return name
     end
     set_toolset("cc", _abs("xtensa-lx106-elf-gcc"))
     set_toolset("cxx", _abs("xtensa-lx106-elf-g++"))
@@ -310,8 +310,6 @@ target("server")
     add_rules("esp8266.config")
 
     add_files("firmware/server.cpp")
-    add_files("firmware/sensor.cpp")
-    add_files("firmware/node_bus.cpp")
 
     add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
@@ -542,7 +540,8 @@ target("nano_core")
     add_files(
         "firmware/lib/ArduinoCore-avr/cores/arduino/**.c",
         "firmware/lib/ArduinoCore-avr/cores/arduino/**.cpp",
-        "firmware/lib/ArduinoCore-avr/cores/arduino/**.S"
+        "firmware/lib/ArduinoCore-avr/cores/arduino/**.S",
+        "firmware/lib/ArduinoCore-avr/libraries/SoftwareSerial/src/**.cpp"
     )
 target_end()
 
@@ -556,22 +555,21 @@ target("arduino_rs485")
     add_deps("nano_core")
 target_end()
 
-target("node_station")
+target("master_node")
     set_kind("binary")
     set_default(false)
-    set_filename("nano.elf")
+    set_filename("master_node.elf")
     set_targetdir("$(builddir)")
     set_toolchains("avr")
     add_rules("avr_nano.config")
 
-    add_files("firmware/nano_node.cpp")
+    add_files("firmware/master_node.cpp")
     add_deps("nano_core", "arduino_rs485")
 
     after_build(function (target)
         local outdir = target:targetdir()
         local elf_path = target:targetfile()
-        local hex_path = path.join(outdir, "nano.hex")
-        local node_station_hex_path = path.join(outdir, "node_station.hex")
+        local hex_path = path.join(outdir, "master_node.hex")
 
         print("Creating hex image: %s", hex_path)
         os.execv("avr-objcopy", {
@@ -580,7 +578,6 @@ target("node_station")
             elf_path,
             hex_path
         })
-        os.cp(hex_path, node_station_hex_path)
 
         print("Reporting size for %s:", elf_path)
         try {
@@ -598,6 +595,64 @@ target("node_station")
             }
         }
     end)
+target_end()
+
+target("slave_node")
+    set_kind("binary")
+    set_default(false)
+    set_filename("slave_node.elf")
+    set_targetdir("$(builddir)")
+    set_toolchains("avr")
+    add_rules("avr_nano.config")
+
+    add_files("firmware/nano_node.cpp")
+    add_deps("nano_core", "arduino_rs485")
+
+    after_build(function (target)
+        local outdir = target:targetdir()
+        local elf_path = target:targetfile()
+        local hex_path = path.join(outdir, "slave_node.hex")
+        local node_station_hex_path = path.join(outdir, "node_station.hex")
+        local nano_hex_path = path.join(outdir, "nano.hex")
+
+        print("Creating hex image: %s", hex_path)
+        os.execv("avr-objcopy", {
+            "-O", "ihex",
+            "-R", ".eeprom",
+            elf_path,
+            hex_path
+        })
+        os.cp(hex_path, node_station_hex_path)
+        os.cp(hex_path, nano_hex_path)
+
+        print("Reporting size for %s:", elf_path)
+        try {
+            function ()
+                os.execv("avr-size", {"-C", "--mcu=atmega328p", elf_path})
+            end,
+            catch {
+                function ()
+                    try {
+                        function ()
+                            os.execv("avr-size", {"-A", elf_path})
+                        end
+                    }
+                end
+            }
+        }
+    end)
+target_end()
+
+target("node_station")
+    set_kind("binary")
+    set_default(false)
+    set_filename("nano.elf")
+    set_targetdir("$(builddir)")
+    set_toolchains("avr")
+    add_rules("avr_nano.config")
+
+    add_files("firmware/nano_node.cpp")
+    add_deps("nano_core", "arduino_rs485")
 target_end()
 
 -- ----------------------------------------------------------------------------

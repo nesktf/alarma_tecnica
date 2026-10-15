@@ -1,648 +1,438 @@
-/**
- * main.js — Cliente web de producción para el Firmware NodeMCU ESP8266
- * Sistema de Alarma Distribuido para Colegio
- *
- * Modo de solo lectura: visualización en tiempo real de telemetría, mapa SVG,
- * grilla de sectores y estado del microcontrolador.
- */
+(() => {
+  "use strict";
 
-// ==========================================================================
-// Síntesis de Audio Web (Sirena y Beeps de Armado)
-// ==========================================================================
+  const state = {
+    authenticated: false,
+    authToken: localStorage.getItem("auth_token") || null,
+    selectedSectorId: 1,
+    soundEnabled: false,
+    systemState: "DISARMED",
+    armingRemainingS: 0,
+    sectors: [],
+    events: []
+  };
 
-class AlarmAudioSynthesizer {
-  constructor() {
-    this.ctx = null;
-    this.enabled = false;
-    this.isSirenPlaying = false;
-    this.sirenOsc1 = null;
-    this.sirenLfo = null;
-    this.sirenGain = null;
-    this.sirenLfoGain = null;
-    this.lastBeepTime = 0;
-  }
+  class AlarmSoundPlayer {
+    constructor() {
+      this.ctx = null;
+      this.osc = null;
+      this.modOsc = null;
+      this.gain = null;
+      this.isPlaying = false;
+    }
 
-  initContext() {
-    if (!this.ctx) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
+    _init() {
+      if (!this.ctx) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioCtx();
       }
     }
-    if (this.ctx && this.ctx.state === "suspended") {
-      this.ctx.resume().catch(() => {});
-    }
-  }
 
-  toggle() {
-    this.initContext();
-    this.enabled = !this.enabled;
-    if (!this.enabled) {
-      this.stopSiren();
-    }
-    return this.enabled;
-  }
+    start() {
+      if (this.isPlaying) return;
+      try {
+        this._init();
+        if (this.ctx.state === "suspended") {
+          this.ctx.resume();
+        }
 
-  playSiren() {
-    if (!this.enabled) return;
-    this.initContext();
-    if (!this.ctx || this.isSirenPlaying) return;
-    try {
-      this.isSirenPlaying = true;
-      const now = this.ctx.currentTime;
+        const now = this.ctx.currentTime;
+        this.osc = this.ctx.createOscillator();
+        this.modOsc = this.ctx.createOscillator();
+        this.gain = this.ctx.createGain();
+        const modGain = this.ctx.createGain();
 
-      // Oscilador modulador LFO (frecuencia de barrido)
-      this.sirenLfo = this.ctx.createOscillator();
-      this.sirenLfo.frequency.setValueAtTime(1.5, now);
+        // Dual-tone siren modulation (600 Hz to 900 Hz, 2 Hz LFO)
+        this.osc.type = "sawtooth";
+        this.osc.frequency.setValueAtTime(750, now);
 
-      this.sirenLfoGain = this.ctx.createGain();
-      this.sirenLfoGain.gain.setValueAtTime(250, now);
+        this.modOsc.type = "sine";
+        this.modOsc.frequency.setValueAtTime(2.0, now);
 
-      // Oscilador portador principal (sirena aguda)
-      this.sirenOsc1 = this.ctx.createOscillator();
-      this.sirenOsc1.type = "sawtooth";
-      this.sirenOsc1.frequency.setValueAtTime(750, now);
+        modGain.gain.setValueAtTime(150, now);
 
-      this.sirenLfo.connect(this.sirenLfoGain);
-      this.sirenLfoGain.connect(this.sirenOsc1.frequency);
+        this.modOsc.connect(modGain);
+        modGain.connect(this.osc.frequency);
 
-      this.sirenGain = this.ctx.createGain();
-      this.sirenGain.gain.setValueAtTime(0.18, now);
+        this.gain.gain.setValueAtTime(0.15, now);
+        this.osc.connect(this.gain);
+        this.gain.connect(this.ctx.destination);
 
-      this.sirenOsc1.connect(this.sirenGain);
-      this.sirenGain.connect(this.ctx.destination);
-
-      this.sirenLfo.start(now);
-      this.sirenOsc1.start(now);
-    } catch (e) {
-      this.isSirenPlaying = false;
-      console.warn("Audio warning:", e);
-    }
-  }
-
-  stopSiren() {
-    if (!this.isSirenPlaying) return;
-    try {
-      if (this.sirenOsc1) {
-        try { this.sirenOsc1.stop(); } catch (_) {}
-        try { this.sirenOsc1.disconnect(); } catch (_) {}
+        this.modOsc.start();
+        this.osc.start();
+        this.isPlaying = true;
+      } catch (err) {
+        console.warn("Audio Context error:", err);
       }
-      if (this.sirenLfo) {
-        try { this.sirenLfo.stop(); } catch (_) {}
-        try { this.sirenLfo.disconnect(); } catch (_) {}
+    }
+
+    stop() {
+      if (!this.isPlaying) return;
+      try {
+        if (this.osc) {
+          this.osc.stop();
+          this.osc.disconnect();
+          this.osc = null;
+        }
+        if (this.modOsc) {
+          this.modOsc.stop();
+          this.modOsc.disconnect();
+          this.modOsc = null;
+        }
+        this.isPlaying = false;
+      } catch (err) {
+        console.warn("Audio Stop error:", err);
       }
-    } finally {
-      this.isSirenPlaying = false;
-      this.sirenOsc1 = null;
-      this.sirenLfo = null;
-      this.sirenGain = null;
-      this.sirenLfoGain = null;
     }
   }
 
-  playArmingBeep(remainingSeconds) {
-    if (!this.enabled || !this.ctx) return;
-    const nowMs = Date.now();
-    const interval = remainingSeconds <= 10 ? 400 : 1000;
-    if (nowMs - this.lastBeepTime < interval) return;
-    this.lastBeepTime = nowMs;
+  const soundPlayer = new AlarmSoundPlayer();
 
+  const dom = {
+    loginModal: document.getElementById("loginModal"),
+    loginForm: document.getElementById("loginForm"),
+    loginPassword: document.getElementById("loginPassword"),
+    loginError: document.getElementById("loginError"),
+    netStatusBadge: document.getElementById("netStatusBadge"),
+    trafficLight: document.getElementById("centralTrafficLight"),
+    trafficLightState: document.getElementById("trafficLightState"),
+    armingTimer: document.getElementById("armingTimer"),
+    armToggleBtn: document.getElementById("armToggleBtn"),
+    soundToggleBtn: document.getElementById("soundToggleBtn"),
+    soundIcon: document.getElementById("soundIcon"),
+    soundText: document.getElementById("soundText"),
+    logoutBtn: document.getElementById("logoutBtn"),
+    inspectorTitle: document.getElementById("inspectorTitle"),
+    inspectorStatusChip: document.getElementById("inspectorStatusChip"),
+    inspectorContent: document.getElementById("inspectorContent"),
+    inspectorSectorToggle: document.getElementById("inspectorSectorToggle"),
+    inspectorPingBtn: document.getElementById("inspectorPingBtn"),
+    eventsTableBody: document.getElementById("eventsTableBody"),
+    sectorInspectorTpl: document.getElementById("sectorInspectorTpl")?.innerHTML || ""
+  };
+
+  async function apiFetch(url, options = {}) {
+    const headers = options.headers || {};
+    if (state.authToken) {
+      headers["X-Auth-Token"] = state.authToken;
+    }
+    options.headers = headers;
+    options.credentials = "same-origin";
+    return fetch(url, options);
+  }
+
+  async function doLogin(password) {
     try {
-      const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(880, now);
-
-      gain.gain.setValueAtTime(0.15, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-
-      osc.connect(gain);
-      gain.connect(this.ctx.destination);
-
-      osc.start(now);
-      osc.stop(now + 0.12);
-    } catch (e) {
-      // Ignorar fallos de audio
-    }
-  }
-}
-
-const audio = new AlarmAudioSynthesizer();
-
-// ==========================================================================
-// Metadatos de Sectores
-// ==========================================================================
-
-const SECTORS_META = {
-  1: { id: 1, name: "Área Operativa", node: "Local (Nano central)", hasPir: true, hasPanic: false, projected: false },
-  2: { id: 2, name: "Automotores", node: "Nano remoto #2 (RS485)", hasPir: true, hasPanic: false, projected: false },
-  3: { id: 3, name: "Jefatura de Taller", node: "Nano remoto #3 (RS485)", hasPir: true, hasPanic: true, projected: false },
-  4: { id: 4, name: "Vicedirección", node: "Nano remoto #4 (RS485)", hasPir: true, hasPanic: true, projected: false },
-  5: { id: 5, name: "Informática", node: "Nano remoto #5 (RS485)", hasPir: true, hasPanic: false, projected: false },
-  6: { id: 6, name: "Biblioteca", node: "Nano remoto #6 (RS485)", hasPir: true, hasPanic: false, projected: true },
-  7: { id: 7, name: "Preceptoría 1", node: "Nano remoto #7 (RS485)", hasPir: true, hasPanic: false, projected: true },
-  8: { id: 8, name: "Preceptoría 2", node: "Nano remoto #8 (RS485)", hasPir: true, hasPanic: false, projected: true },
-  9: { id: 9, name: "Preceptoría 3", node: "Nano remoto #9 (RS485)", hasPir: true, hasPanic: false, projected: true },
-};
-
-function byId(id) {
-  return document.getElementById(id);
-}
-
-// ==========================================================================
-// Referencias a elementos del DOM de Producción
-// ==========================================================================
-
-const el = {
-  // Topbar y telemetría
-  centralTrafficLight: byId("centralTrafficLight"),
-  trafficLightState: byId("trafficLightState"),
-  armingTimer: byId("armingTimer"),
-  connectionBadge: byId("connectionBadge"),
-  vBusValue: byId("vBusValue"),
-  vBusStatusBadge: byId("vBusStatusBadge"),
-  activeSectorsCount: byId("activeSectorsCount"),
-  rs485Status: byId("rs485Status"),
-  soundToggleBtn: byId("soundToggleBtn"),
-  soundIcon: byId("soundIcon"),
-  soundText: byId("soundText"),
-
-  // Navegación
-  tabButtons: document.querySelectorAll(".tab-btn"),
-  tabPanes: document.querySelectorAll(".tab-pane"),
-
-  // Tab 1: Mapa e Inspector
-  toggleBlueprintImg: byId("toggleBlueprintImg"),
-  toggleProjectedSectors: byId("toggleProjectedSectors"),
-  blueprintImg: byId("blueprintImg"),
-  inspectorSectorName: byId("inspectorSectorName"),
-  inspectorStatusBadge: byId("inspectorStatusBadge"),
-  inspectorSectorId: byId("inspectorSectorId"),
-  inspectorSectorNode: byId("inspectorSectorNode"),
-  inspectorSectorType: byId("inspectorSectorType"),
-  inspectorPirStatus: byId("inspectorPirStatus"),
-  inspectorPanicStatus: byId("inspectorPanicStatus"),
-  inspectorCommStatus: byId("inspectorCommStatus"),
-
-  // Tab 2: Grilla y Eventos
-  sectorsCardsGrid: byId("sectorsCardsGrid"),
-  eventsTableBody: byId("eventsTableBody"),
-
-  // Tab 3: NodeMCU hardware
-  boot: byId("bootState"),
-  distance: byId("distanceValue"),
-  meter: byId("distanceMeter"),
-  sampleAge: byId("sampleAge"),
-  sensorMessage: byId("sensorMessage"),
-  wifi: byId("wifiState"),
-  filesystem: byId("filesystemState"),
-  firmware: byId("firmwareState"),
-  uptime: byId("uptime"),
-  serverState: byId("serverState"),
-  serverUrl: byId("serverUrl"),
-  serverPort: byId("serverPort"),
-  serverLastRequest: byId("serverLastRequest"),
-  serverRoutes: byId("serverRoutes"),
-  cpuLimit: byId("cpuLimit"),
-  flashLimit: byId("flashLimit"),
-  triggerGpio: byId("triggerGpio"),
-  echoGpio: byId("echoGpio"),
-  led: byId("ledIndicator"),
-  eventLog: byId("eventLog"),
-};
-
-let latestState = null;
-let selectedSectorId = 1;
-let isPollingActive = true;
-
-// ==========================================================================
-// Configuración de pestañas
-// ==========================================================================
-
-function setupTabs() {
-  el.tabButtons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const targetId = btn.getAttribute("data-tab");
-      el.tabButtons.forEach((b) => b.classList.remove("active"));
-      el.tabPanes.forEach((p) => {
-        p.classList.remove("active");
-        p.hidden = true;
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ password })
       });
+      const data = await res.json();
+      if (res.ok && data.authenticated) {
+        state.authenticated = true;
+        state.authToken = data.token;
+        localStorage.setItem("auth_token", data.token);
+        dom.loginModal.removeAttribute("open");
+        dom.loginError.hidden = true;
+        addEvent("Sistema", "info", "Inicio de sesión exitoso");
+        fetchState();
+      } else {
+        dom.loginError.hidden = false;
+      }
+    } catch (err) {
+      dom.loginError.textContent = "Error de conexión con el gateway.";
+      dom.loginError.hidden = false;
+    }
+  }
 
-      btn.classList.add("active");
-      const targetPane = byId(targetId);
-      if (targetPane) {
-        targetPane.classList.add("active");
-        targetPane.hidden = false;
+  async function doLogout() {
+    try {
+      await apiFetch("/api/logout", { method: "POST" });
+    } catch (_) {}
+    state.authenticated = false;
+    state.authToken = null;
+    localStorage.removeItem("auth_token");
+    dom.loginModal.setAttribute("open", "");
+    addEvent("Sistema", "info", "Sesión cerrada por el operador");
+  }
+
+  async function toggleArmSystem() {
+    const shouldArm = (state.systemState === "DISARMED");
+    try {
+      await apiFetch("/api/system/arm", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ arm: shouldArm ? "true" : "false" })
+      });
+      addEvent("Central", "warning", shouldArm ? "Comando de armado enviado" : "Comando de desarmado enviado");
+      fetchState();
+    } catch (err) {
+      console.error("Error al armar/desarmar:", err);
+    }
+  }
+
+  async function toggleSector(sectorId, enabled) {
+    try {
+      await apiFetch("/api/sector/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ sector_id: String(sectorId), enabled: enabled ? "true" : "false" })
+      });
+      addEvent(`Sector ${sectorId}`, "info", enabled ? "Vigilancia habilitada" : "Vigilancia deshabilitada (Bypass)");
+      fetchState();
+    } catch (err) {
+      console.error("Error al conmutar sector:", err);
+    }
+  }
+
+  async function pingSector(sectorId) {
+    try {
+      await apiFetch("/api/sector/ping", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ sector_id: String(sectorId) })
+      });
+      addEvent(`Sector ${sectorId}`, "info", "Solicitud de sondeo manual enviada");
+      fetchState();
+    } catch (err) {
+      console.error("Error al enviar ping:", err);
+    }
+  }
+
+  function addEvent(sector, severity, description) {
+    const timeStr = new Date().toLocaleTimeString("es-AR", { hour12: false });
+    state.events.unshift({ time: timeStr, sector, severity, description });
+    if (state.events.length > 40) state.events.pop();
+    renderEvents();
+  }
+
+  function renderEvents() {
+    if (!dom.eventsTableBody) return;
+    if (state.events.length === 0) {
+      dom.eventsTableBody.innerHTML = `<tr><td colspan="4" class="text-muted">No hay eventos recientes registrados.</td></tr>`;
+      return;
+    }
+    const html = state.events.map(ev => {
+      let badgeClass = "text-muted";
+      if (ev.severity === "critical") badgeClass = "text-danger";
+      if (ev.severity === "warning") badgeClass = "text-success";
+      return `<tr>
+        <td><code>${ev.time}</code></td>
+        <td><strong>${ev.sector}</strong></td>
+        <td><span class="${badgeClass}">${ev.severity.toUpperCase()}</span></td>
+        <td>${ev.description}</td>
+      </tr>`;
+    }).join("");
+    dom.eventsTableBody.innerHTML = html;
+  }
+
+  function updateTrafficLight(alarmSys) {
+    const st = alarmSys.state || "DISARMED";
+    const prev = state.systemState;
+    state.systemState = st;
+    state.armingRemainingS = alarmSys.arming_remaining_s || 0;
+
+    dom.trafficLight.className = "traffic-light-pill";
+    dom.trafficLightState.textContent = st;
+
+    if (st === "ARMING") {
+      dom.trafficLight.classList.add("state-arming");
+      dom.armingTimer.hidden = false;
+      dom.armingTimer.textContent = `${state.armingRemainingS}s`;
+      dom.armToggleBtn.textContent = "Cancelar Armado";
+    } else if (st === "ARMED") {
+      dom.trafficLight.classList.add("state-armed");
+      dom.armingTimer.hidden = true;
+      dom.armToggleBtn.textContent = "Desarmar Sistema";
+    } else if (st === "ALARM") {
+      dom.trafficLight.classList.add("state-alarm");
+      dom.armingTimer.hidden = true;
+      dom.armToggleBtn.textContent = "Silenciar / Desarmar";
+    } else {
+      dom.trafficLight.classList.add("state-disarmed");
+      dom.armingTimer.hidden = true;
+      dom.armToggleBtn.textContent = "Armar Sistema";
+    }
+
+    if (st === "ALARM" && state.soundEnabled) {
+      soundPlayer.start();
+    } else {
+      soundPlayer.stop();
+    }
+
+    if (prev !== st) {
+      let sev = "info";
+      if (st === "ALARM") sev = "critical";
+      if (st === "ARMED") sev = "warning";
+      addEvent("Central", sev, `Estado de alarma transicionado a: ${st}`);
+    }
+  }
+
+  function updateMapOverlays(sectors) {
+    sectors.forEach(sec => {
+      const g = document.getElementById(`mapSector-${sec.id}`);
+      if (!g) return;
+
+      const poly = g.querySelector(".sector-poly");
+      if (!poly) return;
+
+      poly.className = "sector-poly";
+
+      if (!sec.enabled) {
+        poly.classList.add("state-disabled");
+      } else if (state.systemState === "ALARM" && (sec.motion || sec.panic || !sec.online)) {
+        poly.classList.add("state-alarm");
+      } else if (state.systemState === "ARMED") {
+        poly.classList.add("state-armed");
+      } else {
+        poly.classList.add("state-active");
       }
     });
-  });
-}
-
-// ==========================================================================
-// Renderizado: Semáforo del Nodo Central y Telemetría
-// ==========================================================================
-
-function renderTrafficLightAndTelemetry(state) {
-  const alarm = state.alarm_system || {
-    state: "DISARMED",
-    arming_remaining_s: 0,
-    v_bus: 12.4,
-    v_bus_status: "normal",
-    active_areas: [],
-    no_response_areas: [],
-    sectors: [],
-  };
-
-  const stateClassMap = {
-    DISARMED: "state-disarmed",
-    ARMING: "state-arming",
-    ARMED: "state-armed",
-    ALARM: "state-alarm",
-  };
-  const stateTextMap = {
-    DISARMED: "DESARMADO",
-    ARMING: "ARMANDO",
-    ARMED: "ARMADO",
-    ALARM: "ALARMA ACTIVA",
-  };
-
-  el.centralTrafficLight.className = `traffic-light-pill ${stateClassMap[alarm.state] || "state-disarmed"}`;
-  el.trafficLightState.textContent = stateTextMap[alarm.state] || alarm.state;
-
-  if (alarm.state === "ARMING" && alarm.arming_remaining_s > 0) {
-    el.armingTimer.hidden = false;
-    el.armingTimer.textContent = `${Math.ceil(alarm.arming_remaining_s)}s`;
-    audio.playArmingBeep(alarm.arming_remaining_s);
-  } else {
-    el.armingTimer.hidden = true;
   }
 
-  // Audio de sirena en estado ALARM
-  if (alarm.state === "ALARM") {
-    audio.playSiren();
-  } else {
-    audio.stopSiren();
-  }
+  function renderInspector() {
+    const sec = state.sectors.find(s => s.id === state.selectedSectorId);
+    if (!sec) return;
 
-  // Badge de conexión
-  el.connectionBadge.textContent = state.state === "running" ? "ESP8266 Conectado" : "Esperando";
-  el.connectionBadge.className = `badge ${state.state === "running" ? "good" : "bad"}`;
+    dom.inspectorTitle.textContent = sec.name;
 
-  // Telemetría V_bus
-  el.vBusValue.textContent = `${alarm.v_bus.toFixed(1)} V`;
-  el.vBusStatusBadge.className = `mini-chip ${alarm.v_bus_status}`;
-  el.vBusStatusBadge.textContent =
-    alarm.v_bus_status === "alarm" ? "Crítico (<11V)" : alarm.v_bus_status === "warning" ? "Alerta (<11.8V)" : "Normal";
+    let chipClass = "normal";
+    let chipText = "Normal";
 
-  // Sectores activos
-  const activeCount = (alarm.active_areas || []).length;
-  el.activeSectorsCount.textContent = `${activeCount} / 5`;
-  el.activeSectorsCount.className = `telemetry-value ${activeCount > 0 ? "text-yellow" : ""}`;
+    if (!sec.enabled) {
+      chipClass = "disabled";
+      chipText = "Deshabilitado";
+    } else if (sec.panic || (sec.motion && state.systemState === "ARMED")) {
+      chipClass = "alarm";
+      chipText = "Disparo Activo";
+    } else if (state.systemState === "ARMED") {
+      chipClass = "armed";
+      chipText = "Armado";
+    }
 
-  // Bus RS485
-  const hasNoResponse = (alarm.no_response_areas || []).length > 0;
-  el.rs485Status.textContent = hasNoResponse ? `${alarm.no_response_areas.length} sin respuesta` : "Operativo";
-  el.rs485Status.className = `telemetry-value ${hasNoResponse ? "text-yellow" : "text-green"}`;
-}
+    dom.inspectorStatusChip.className = `status-chip ${chipClass}`;
+    dom.inspectorStatusChip.textContent = chipText;
 
-// ==========================================================================
-// Renderizado: Mapa SVG de Sectores
-// ==========================================================================
+    dom.inspectorSectorToggle.checked = sec.enabled;
 
-function renderMap(state) {
-  const alarm = state.alarm_system || { sectors: [] };
-  const sectors = alarm.sectors || [];
+    const subnodes = [
+      {
+        name: "Sensor de Movimiento / PIR",
+        status_label: sec.motion ? "Presencia Detectada" : "Despejado",
+        status_class: sec.motion ? "text-danger" : "text-success"
+      }
+    ];
 
-  sectors.forEach((sec) => {
-    const group = byId(`mapSector-${sec.id}`);
-    const poly = byId(`area-${sec.id}`);
-    if (!group || !poly) return;
-
-    // Actualizar clases del polígono según estado
-    poly.className.baseVal = `sector-poly ${sec.status}`;
-
-    // Clases del grupo para animación del pulso
-    group.classList.remove("state-motion", "state-alarm", "selected");
-    if (sec.status === "motion") group.classList.add("state-motion");
-    if (sec.status === "alarm") group.classList.add("state-alarm");
-    if (sec.id === selectedSectorId) group.classList.add("selected");
-  });
-}
-
-function setupMapInteractions() {
-  // Click en sectores del mapa SVG
-  for (let sid = 1; sid <= 9; sid++) {
-    const group = byId(`mapSector-${sid}`);
-    if (group) {
-      group.addEventListener("click", () => {
-        selectSector(sid);
+    if (sec.id === 1 || sec.id === 3 || sec.id === 4) {
+      subnodes.push({
+        name: "Pulsador de Emergencia / Pánico",
+        status_label: sec.panic ? "Activado" : "Normal",
+        status_class: sec.panic ? "text-danger" : "text-muted"
       });
     }
+
+    const tplData = {
+      online: sec.online,
+      motion: sec.motion,
+      distance_cm: sec.distance_cm || 0,
+      age_text: (sec.age_ms < 5000) ? "Hace instantes" : `${Math.round(sec.age_ms / 1000)} s`,
+      subnodes
+    };
+
+    if (window.Mustache && dom.sectorInspectorTpl) {
+      dom.inspectorContent.innerHTML = window.Mustache.render(dom.sectorInspectorTpl, tplData);
+    }
   }
 
-  // Toggle de visibilidad de plano arquitectónico de fondo
-  if (el.toggleBlueprintImg && el.blueprintImg) {
-    el.toggleBlueprintImg.addEventListener("change", (e) => {
-      el.blueprintImg.style.display = e.target.checked ? "block" : "none";
+  async function fetchState() {
+    try {
+      const res = await apiFetch("/api/state");
+      if (res.status === 401) {
+        state.authenticated = false;
+        dom.loginModal.setAttribute("open", "");
+        return;
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = await res.json();
+
+      dom.netStatusBadge.className = "badge";
+      if (data.master_connected) {
+        dom.netStatusBadge.textContent = "En Línea";
+        dom.netStatusBadge.style.color = "#86efac";
+      } else {
+        dom.netStatusBadge.textContent = "Maestro Nano Desconectado";
+        dom.netStatusBadge.style.color = "#fca5a5";
+      }
+
+      if (data.alarm_system) {
+        updateTrafficLight(data.alarm_system);
+      }
+
+      if (Array.isArray(data.sectors)) {
+        state.sectors = data.sectors;
+        updateMapOverlays(data.sectors);
+        renderInspector();
+      }
+    } catch (err) {
+      dom.netStatusBadge.textContent = "Error de Enlace";
+      dom.netStatusBadge.style.color = "#fca5a5";
+    }
+  }
+
+  function setupEventListeners() {
+    dom.loginForm.addEventListener("submit", ev => {
+      ev.preventDefault();
+      const val = dom.loginPassword.value.trim();
+      if (val) doLogin(val);
+    });
+
+    dom.logoutBtn.addEventListener("click", () => doLogout());
+
+    dom.armToggleBtn.addEventListener("click", () => toggleArmSystem());
+
+    dom.soundToggleBtn.addEventListener("click", () => {
+      state.soundEnabled = !state.soundEnabled;
+      if (state.soundEnabled) {
+        dom.soundIcon.textContent = "🔊";
+        dom.soundText.textContent = "Habilitado";
+        if (state.systemState === "ALARM") soundPlayer.start();
+      } else {
+        dom.soundIcon.textContent = "🔇";
+        dom.soundText.textContent = "Silenciado";
+        soundPlayer.stop();
+      }
+    });
+
+    document.querySelectorAll(".map-sector-group").forEach(el => {
+      const secId = parseInt(el.getAttribute("data-sector-id"), 10);
+      el.addEventListener("click", () => {
+        state.selectedSectorId = secId;
+        renderInspector();
+      });
+      el.addEventListener("keydown", ev => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          state.selectedSectorId = secId;
+          renderInspector();
+        }
+      });
+    });
+
+    dom.inspectorSectorToggle.addEventListener("change", ev => {
+      toggleSector(state.selectedSectorId, ev.target.checked);
+    });
+
+    dom.inspectorPingBtn.addEventListener("click", () => {
+      pingSector(state.selectedSectorId);
     });
   }
 
-  // Toggle de sectores proyectados
-  function updateProjectedVisibility() {
-    const isChecked = !!(el.toggleProjectedSectors && el.toggleProjectedSectors.checked);
-    for (let sid = 6; sid <= 9; sid++) {
-      const g = byId(`mapSector-${sid}`);
-      if (g) {
-        g.style.display = isChecked ? "block" : "none";
-        g.style.opacity = isChecked ? "0.85" : "0.3";
-      }
-    }
-  }
-
-  if (el.toggleProjectedSectors) {
-    el.toggleProjectedSectors.addEventListener("change", updateProjectedVisibility);
-    updateProjectedVisibility();
-  }
-}
-
-function selectSector(sectorId) {
-  selectedSectorId = sectorId;
-  if (latestState) {
-    renderMap(latestState);
-    renderSectorInspector(sectorId, latestState);
-  }
-}
-
-// ==========================================================================
-// Renderizado: Inspector del Sector Seleccionado (Solo Lectura)
-// ==========================================================================
-
-function renderSectorInspector(sectorId, state) {
-  const meta = SECTORS_META[sectorId] || {
-    id: sectorId,
-    name: `Sector ${sectorId}`,
-    node: "Desconocido",
-    hasPir: true,
-    hasPanic: false,
-    projected: false,
-  };
-
-  const alarm = state.alarm_system || { sectors: [] };
-  const secData = (alarm.sectors || []).find((s) => s.id === sectorId) || {
-    id: sectorId,
-    status: meta.projected ? "projected" : "normal",
-    active: false,
-    motion: false,
-    no_response: false,
-  };
-
-  el.inspectorSectorName.textContent = meta.name;
-  el.inspectorSectorId.textContent = `Zona #${meta.id}`;
-  el.inspectorSectorNode.textContent = meta.node;
-  el.inspectorSectorType.textContent = meta.hasPanic ? "Sensor PIR + Pulsador de Emergencia" : "Sensor PIR volumétrico";
-
-  // Badges y textos de estado
-  const statusLabels = {
-    normal: ["Reposo", "good"],
-    motion: ["Movimiento Detectado", "warning"],
-    alarm: ["¡ALARMA ACTIVA!", "bad"],
-    no_response: ["Sin Respuesta en Bus", "warning"],
-    projected: ["Sector Proyectado", ""],
-  };
-  const [badgeText, badgeClass] = statusLabels[secData.status] || ["Normal", "good"];
-  el.inspectorStatusBadge.textContent = badgeText;
-  el.inspectorStatusBadge.className = `state-chip ${badgeClass}`;
-
-  // Sensores
-  el.inspectorPirStatus.textContent = secData.motion ? "🔴 ACTIVADO (Movimiento)" : "🟢 Reposo";
-  el.inspectorPanicStatus.textContent = !meta.hasPanic
-    ? "No disponible"
-    : secData.active && !secData.motion
-    ? "🚨 DISPARADO"
-    : "🟢 En espera";
-
-  el.inspectorCommStatus.textContent = meta.id === 1 ? "Local (Arduino Nano)" : secData.no_response ? "❌ Timeout de respuesta" : "🟢 Conectado (RS485)";
-}
-
-// ==========================================================================
-// Renderizado: Grilla de Tarjetas de Sectores y Tabla de Eventos (Tab 2)
-// ==========================================================================
-
-function renderSectorsGrid(state) {
-  const alarm = state.alarm_system || { sectors: [] };
-  const sectors = alarm.sectors || [];
-  if (!sectors.length) return;
-
-  el.sectorsCardsGrid.innerHTML = sectors
-    .map((sec) => {
-      const meta = SECTORS_META[sec.id] || { hasPanic: false };
-      const statusTitleMap = {
-        normal: "Reposo",
-        motion: "Movimiento",
-        alarm: "Alarma",
-        no_response: "Sin Respuesta",
-        projected: "Proyectado",
-      };
-
-      return `
-      <div class="sector-card status-${sec.status}" onclick="selectAndShowMap(${sec.id})">
-        <div class="sector-card-header">
-          <h3 class="sector-card-title">Zona ${sec.id}: ${sec.name}</h3>
-          <span class="mini-chip ${sec.status === 'alarm' ? 'alarm' : sec.status === 'motion' ? 'warning' : 'normal'}">
-            ${statusTitleMap[sec.status] || sec.status}
-          </span>
-        </div>
-        <div class="sector-card-node">${sec.node}</div>
-        <div class="sector-card-indicators">
-          <span class="indicator-tag">PIR: ${sec.motion ? "Detectando" : "Reposo"}</span>
-          ${meta.hasPanic ? `<span class="indicator-tag">Pulsador: Disponible</span>` : ""}
-          <span class="indicator-tag">Bus: ${sec.no_response ? "Desconectado" : "OK"}</span>
-        </div>
-      </div>
-    `;
-    })
-    .join("");
-}
-
-window.selectAndShowMap = function (sectorId) {
-  selectSector(sectorId);
-  const mapBtn = byId("tabBtnMap");
-  if (mapBtn) mapBtn.click();
-};
-
-function renderEventsTable(events) {
-  if (!events || !events.length) {
-    el.eventsTableBody.innerHTML = `<tr><td colspan="6" class="text-center muted">Sin eventos registrados aún.</td></tr>`;
-    return;
-  }
-
-  el.eventsTableBody.innerHTML = events
-    .map(
-      (ev) => `
-    <tr>
-      <td><code>${ev.ts || "—"}</code></td>
-      <td><span class="severity-chip ${ev.severity || "info"}">${ev.severity || "info"}</span></td>
-      <td><strong>${ev.area_name || (ev.area ? `Sector ${ev.area}` : "Sistema")}</strong></td>
-      <td><code>${ev.code || "—"}</code></td>
-      <td>${ev.event || "—"}</td>
-      <td class="muted">${ev.details || "—"}</td>
-    </tr>
-  `
-    )
-    .join("");
-}
-
-// ==========================================================================
-// Renderizado: Panel de Hardware NodeMCU (Tab 3)
-// ==========================================================================
-
-function renderBoardAndSensor(state) {
-  const bootLabels = {
-    running: ["En funcionamiento", true],
-    waiting_wifi: ["Esperando Wi-Fi", false],
-    halted_filesystem: ["Detenido: LittleFS", false],
-  };
-  const [bootText, bootGood] = bootLabels[state.state] || ["Estado desconocido", false];
-  el.boot.textContent = bootText;
-  el.boot.className = `state-chip ${bootGood ? "good" : "bad"}`;
-
-  // Conectividad
-  setStatus(el.wifi, state.wifi ? "Conectado" : "Desconectado", state.wifi);
-  setStatus(el.filesystem, state.filesystem ? "Montado" : "Error de montaje", state.filesystem);
-  setStatus(el.firmware, state.state === "running" ? "Ejecución normal" : "Bloqueado", state.state === "running");
-  el.uptime.textContent = `${Math.floor((state.uptime_ms || 0) / 1000)} s`;
-
-  // Límites
-  if (state.limits) {
-    el.cpuLimit.textContent = `${state.limits.cpu_mhz} MHz`;
-    el.flashLimit.textContent = `${Math.round(state.limits.flash_bytes / (1024 * 1024))} MB`;
-  }
-  if (state.pins) {
-    el.triggerGpio.textContent = `GPIO${state.pins.trigger_gpio} (${state.pins.trigger_label})`;
-    el.echoGpio.textContent = `GPIO${state.pins.echo_gpio} (${state.pins.echo_label})`;
-  }
-
-  // Sensor ultrasónico
-  const sensor = state.sensor || {};
-  const meterParent = el.meter ? (el.meter.closest("[role='meter']") || el.meter.parentElement) : null;
-  if (sensor.valid && typeof sensor.distance_cm === "number") {
-    el.distance.textContent = sensor.distance_cm.toFixed(1);
-    const pct = Math.min(100, Math.max(0, (sensor.distance_cm / 400) * 100));
-    el.meter.style.width = `${pct}%`;
-    if (meterParent) {
-      meterParent.setAttribute("aria-valuenow", sensor.distance_cm.toFixed(1));
-    }
-    el.sampleAge.textContent = `${sensor.age_ms || 0} ms atrás`;
-    el.sensorMessage.textContent = `Medición válida dentro del rango (2 – 400 cm).`;
-    if (el.led) el.led.style.background = "#50d890";
-  } else {
-    el.distance.textContent = "—";
-    el.meter.style.width = "0%";
-    if (meterParent) {
-      meterParent.setAttribute("aria-valuenow", "0");
-    }
-    el.sampleAge.textContent = "Sin lectura";
-    el.sensorMessage.textContent = "Sin eco o sensor deshabilitado.";
-    if (el.led) el.led.style.background = "#ff6878";
-  }
-
-  // Servidor HTTP
-  const server = state.server || {};
-  el.serverState.textContent = server.status === "running" ? "Activo" : "Degradado";
-  el.serverState.className = `state-chip ${server.status === "running" ? "good" : "bad"}`;
-  el.serverUrl.textContent = server.base_url || "—";
-  el.serverPort.textContent = server.port || "80";
-  el.serverLastRequest.textContent = server.last_request || "—";
-
-  if (server.routes && el.serverRoutes) {
-    el.serverRoutes.innerHTML = server.routes.map((r) => `<span class="route-pill">${r}</span>`).join("");
-  }
-
-  // Log serial
-  if (state.logs && el.eventLog) {
-    el.eventLog.innerHTML = state.logs.map((log) => `<li>${escapeHtml(log)}</li>`).join("");
-  }
-}
-
-function setStatus(target, text, isGood) {
-  if (!target) return;
-  target.textContent = text;
-  target.className = isGood ? "text-green" : "text-red";
-}
-
-function escapeHtml(str) {
-  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-// ==========================================================================
-// Bucle de consulta de estado (GET /api/state)
-// ==========================================================================
-
-async function fetchState() {
-  if (!isPollingActive) return;
-
-  try {
-    const res = await fetch("/api/state", { cache: "no-store" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const state = await res.json();
-    handleStateUpdate(state);
-  } catch (err) {
-    el.connectionBadge.textContent = "Desconectado";
-    el.connectionBadge.className = "badge bad";
-  }
-}
-
-function handleStateUpdate(state) {
-  latestState = state;
-
-  // 1. Topbar y Telemetría
-  renderTrafficLightAndTelemetry(state);
-
-  // 2. Mapa interactivo e inspector
-  renderMap(state);
-  renderSectorInspector(selectedSectorId, state);
-
-  // 3. Grilla y eventos
-  renderSectorsGrid(state);
-  if (state.alarm_system && state.alarm_system.recent_events) {
-    renderEventsTable(state.alarm_system.recent_events);
-  }
-
-  // 4. Panel NodeMCU
-  renderBoardAndSensor(state);
-}
-
-// ==========================================================================
-// Inicialización al cargar el DOM
-// ==========================================================================
-
-document.addEventListener("DOMContentLoaded", () => {
-  setupTabs();
-  setupMapInteractions();
-
-  // Control de sonido
-  if (el.soundToggleBtn) {
-    el.soundToggleBtn.addEventListener("click", () => {
-      const isEnabled = audio.toggle();
-      el.soundIcon.textContent = isEnabled ? "🔊" : "🔇";
-      el.soundText.textContent = isEnabled ? "Activo" : "Silenciado";
-      el.soundToggleBtn.className = isEnabled ? "sound-toggle-btn good" : "sound-toggle-btn secondary outline";
-      if (isEnabled && latestState && latestState.alarm_system && latestState.alarm_system.state === "ALARM") {
-        audio.playSiren();
-      }
-    });
-  }
-
-  // Interacción para reanudar AudioContext si el navegador lo suspendió
-  document.addEventListener("click", () => {
-    if (audio.enabled && audio.ctx && audio.ctx.state === "suspended") {
-      audio.ctx.resume().catch(() => {});
-    }
+  document.addEventListener("DOMContentLoaded", () => {
+    setupEventListeners();
+    fetchState();
+    setInterval(fetchState, 1000);
   });
-
-  // Primera consulta y bucle cada 1000ms
-  fetchState();
-  setInterval(fetchState, 1000);
-});
+})();

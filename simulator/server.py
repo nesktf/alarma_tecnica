@@ -124,31 +124,80 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         path = self._request_path()
         self.model.record_http_request("POST", path)
+
+        content_length = int(self.headers.get("Content-Length", "0"))
+        body_bytes = self.rfile.read(content_length) if content_length > 0 else b""
+        content_type = self.headers.get_content_type()
+
+        payload = {}
+        if content_type == "application/json" and body_bytes:
+            try:
+                payload = json.loads(body_bytes.decode("utf-8"))
+            except Exception as e:
+                self._send_json(400, {"error": f"JSON inválido: {e}"})
+                return
+        elif content_type == "application/x-www-form-urlencoded" and body_bytes:
+            parsed = parse_qs(body_bytes.decode("utf-8"))
+            payload = {k: v[0] for k, v in parsed.items()}
+
+        if path == "/api/login":
+            pwd = payload.get("password", "")
+            if pwd in ("1234", "admin123"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Set-Cookie", "token=simulated_token_12345; Path=/")
+                resp = json.dumps({"authenticated": True, "token": "simulated_token_12345"}).encode("utf-8")
+                self.send_header("Content-Length", str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+            else:
+                self._send_json(401, {"error": "Credenciales inválidas."})
+            return
+
+        if path == "/api/logout":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Set-Cookie", "token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+            resp = json.dumps({"authenticated": False}).encode("utf-8")
+            self.send_header("Content-Length", str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+
+        if path == "/api/system/arm":
+            arm = str(payload.get("arm", "false")).lower() in ("true", "1")
+            self.model.apply_controls({"set_alarm_state": "ARMING" if arm else "DISARMED"})
+            self._send_json(200, {"status": "ok"})
+            return
+
+        if path == "/api/sector/toggle":
+            sec_id = int(payload.get("sector_id", 0))
+            enabled = str(payload.get("enabled", "true")).lower() in ("true", "1")
+            if 1 <= sec_id <= 5:
+                sector = self.model._sectors.get(sec_id)
+                if sector:
+                    sector["active"] = enabled
+            self._send_json(200, {"status": "ok"})
+            return
+
+        if path == "/api/sector/ping":
+            self._send_json(200, {"status": "ok"})
+            return
+
         if path != "/api/controls":
             self._send_json(404, {"error": "Ruta de simulación inexistente."})
             return
-        if self.headers.get_content_type() != "application/json":
+
+        if content_type != "application/json":
             self._send_json(415, {"error": "El cuerpo debe usar Content-Type application/json."})
             return
-        try:
-            content_length = int(self.headers.get("Content-Length", "0"))
-        except ValueError:
-            self._send_json(400, {"error": "Content-Length inválido."})
-            return
+
         if content_length <= 0 or content_length > MAX_REQUEST_BYTES:
             self._send_json(413, {"error": f"El cuerpo debe tener entre 1 y {MAX_REQUEST_BYTES} bytes."})
             return
 
         try:
-            body = self.rfile.read(content_length)
-            if len(body) != content_length:
-                self._send_json(400, {"error": "Cuerpo incompleto."})
-                return
-            controls = json.loads(body)
-            self.model.apply_controls(controls)
-        except (json.JSONDecodeError, UnicodeDecodeError) as error:
-            self._send_json(400, {"error": f"JSON inválido: {error}."})
-            return
+            self.model.apply_controls(payload)
         except ControlError as error:
             self._send_json(400, {"error": str(error)})
             return
