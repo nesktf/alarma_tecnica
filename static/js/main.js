@@ -121,12 +121,24 @@
     return fetch(url, options);
   }
 
+  async function computeSha256(ascii) {
+    if (window.crypto && window.crypto.subtle) {
+      const buffer = new TextEncoder().encode(ascii);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+    return ascii;
+  }
+
   async function doLogin(password) {
     try {
+      const passwordHash = await computeSha256(password);
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({ password })
+        body: new URLSearchParams({ password: passwordHash })
       });
       const data = await res.json();
       if (res.ok && data.authenticated) {

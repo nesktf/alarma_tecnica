@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import hashlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -142,7 +143,13 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
 
         if path == "/api/login":
             pwd = payload.get("password", "")
-            if pwd in ("1234", "admin123"):
+            valid_passwords = {
+                "1234",
+                "admin123",
+                hashlib.sha256(b"1234").hexdigest(),
+                hashlib.sha256(b"admin123").hexdigest(),
+            }
+            if pwd in valid_passwords:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Set-Cookie", "token=simulated_token_12345; Path=/")

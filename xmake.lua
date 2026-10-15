@@ -1,18 +1,13 @@
 set_project("alarma_tecnica")
 set_version("1.0.0")
 
-set_defaultplat("linux") -- xmake 3.1.1 no resuelve cross sin flags; linux permite --toolchain=xtensa-lx106-elf
+set_defaultplat("linux") -- xmake 3.1.1 requires a default platform to resolve cross-compilation without flags
 set_targetdir("$(builddir)")
 local pdir = os.projectdir()
 
--- ----------------------------------------------------------------------------
--- Toolchains: Xtensa LX106 ELF (ESP8266) & AVR GCC (Arduino Nano)
--- ----------------------------------------------------------------------------
 toolchain("xtensa-lx106-elf")
     set_kind("standalone")
-    -- Absolute tool paths: lib/esp8266 stays at the repository root while this
-    -- build file lives in firmware/. Resolved from this file's directory so the
-    -- project can be moved without breaking the cross-compilation setup.
+    -- Resolve tools relative to project root to allow cross-compilation.
     local _bindir = path.join(pdir, "firmware/lib", "esp8266", "tools", "xtensa-lx106-elf", "bin")
     local _abs = function(name)
         local full = path.join(_bindir, name)
@@ -49,7 +44,6 @@ toolchain("avr")
             end
         end
         if not bindir then
-            -- Check common Arduino toolchain install directories
             local home = os.getenv("HOME") or ""
             local candidates = {
                 path.join(home, ".arduino15/packages/arduino/tools/avr-gcc"),
@@ -89,11 +83,12 @@ toolchain("avr")
     set_toolset("strip", "avr-strip")
     set_toolset("objcopy", "avr-objcopy")
     set_toolset("size", "avr-size")
+
+    on_check(function (toolchain)
+        return true
+    end)
 toolchain_end()
 
--- ----------------------------------------------------------------------------
--- Options
--- ----------------------------------------------------------------------------
 option("board")
     set_default("nodemcu")
     set_description("Target ESP8266 board (e.g. nodemcu, generic)")
@@ -114,9 +109,6 @@ option("nano_mcu")
     set_description("Microcontroller for Arduino Nano (e.g. atmega328p, atmega168)")
 option_end()
 
--- ----------------------------------------------------------------------------
--- Rules: ESP8266 & Arduino AVR Nano
--- ----------------------------------------------------------------------------
 rule("esp8266.config")
     on_load(function (target)
         target:set("languages", "gnu17", "gnuxx17")
@@ -167,6 +159,10 @@ rule("esp8266.config")
 
         target:add("includedirs",
             path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/include"),
+            path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/xtensa-lx106-elf/include"),
+            path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/xtensa-lx106-elf/include/c++/10.3.0"),
+            path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/xtensa-lx106-elf/include/c++/10.3.0/xtensa-lx106-elf"),
+            path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/lib/gcc/xtensa-lx106-elf/10.3.0/include"),
             path.join(pdir, "firmware/lib/esp8266/tools/sdk/include"),
             path.join(pdir, "firmware/lib/esp8266/tools/sdk/lwip2/include"),
             path.join(pdir, "firmware/lib/esp8266/cores/esp8266"),
@@ -250,14 +246,12 @@ rule("avr_nano.config")
             path.join(pdir, "firmware/lib/ArduinoCore-avr/libraries/SPI/src"),
             path.join(pdir, "firmware/lib/ArduinoCore-avr/libraries/SoftwareSerial/src"),
             path.join(pdir, "firmware/lib/ArduinoRS485/src"),
-            path.join(pdir, "firmware")
+            path.join(pdir, "firmware"),
+            path.join(target:targetdir(), "generated")
         )
     end)
 rule_end()
 
--- ----------------------------------------------------------------------------
--- Targets: ESP8266
--- ----------------------------------------------------------------------------
 target("esp8266_core")
     set_kind("static")
     set_default(false)
@@ -309,7 +303,7 @@ target("server")
     set_toolchains("xtensa-lx106-elf")
     add_rules("esp8266.config")
 
-    add_files("firmware/server.cpp")
+    add_files("firmware/server.cpp", "firmware/server_http.cpp")
 
     add_deps("esp8266_littlefs", "esp8266_webserver", "esp8266_wifi", "esp8266_core")
 
@@ -344,21 +338,15 @@ target("server")
     )
 
     on_load(function (target)
+        import("core.base.bytes")
         local outdir = target:targetdir()
         local gendur = path.join(outdir, "generated")
         os.mkdir(outdir)
         os.mkdir(gendur)
-    end)
 
-    before_build(function (target)
-        local outdir = target:targetdir()
-        local gendur = path.join(outdir, "generated")
-        os.mkdir(gendur)
-
-        -- 1. Read .env file & generate credentials.h
         local env_file = path.join(pdir, ".env")
         if not os.isfile(env_file) then
-            raise("Error: .env file not found at: " .. env_file .. "\nCopy .env.example to .env and fill in WIFI_SSID / WIFI_PASS (or WIFI_PSWD) before building.")
+            return
         end
 
         local env_vars = {}
@@ -374,15 +362,8 @@ target("server")
             end
         end
 
-        local wifi_ssid = env_vars.WIFI_SSID or os.getenv("WIFI_SSID")
-        local wifi_pass = env_vars.WIFI_PASS or env_vars.WIFI_PSWD or os.getenv("WIFI_PASS") or os.getenv("WIFI_PSWD")
-
-        if not wifi_ssid or #wifi_ssid == 0 then
-            raise("Error: WIFI_SSID is required but not defined in .env or environment variables!")
-        end
-        if not wifi_pass or #wifi_pass == 0 then
-            raise("Error: WIFI_PASS is required but not defined in .env or environment variables!")
-        end
+        local wifi_ssid = env_vars.WIFI_SSID or os.getenv("WIFI_SSID") or ""
+        local wifi_pass = env_vars.WIFI_PASS or env_vars.WIFI_PSWD or os.getenv("WIFI_PASS") or os.getenv("WIFI_PSWD") or ""
 
         local function parse_ip(ip_str, var_name)
             if not ip_str or #ip_str == 0 then
@@ -412,6 +393,12 @@ target("server")
         local mask_formatted = parse_ip(raw_mask, "SERVER_MASK") or "IPAddress(255, 255, 255, 0)"
 
         local raw_ip_str = raw_ip and raw_ip:gsub('^["\']', ''):gsub('["\']$', ''):gsub("%s+", "") or "192.168.0.53"
+        local server_pass = env_vars.SERVER_LOGIN_PASS or os.getenv("SERVER_LOGIN_PASS") or "admin123"
+        local keypad_pass = env_vars.MASTER_KEYPASS_PASSCODE or os.getenv("MASTER_KEYPASS_PASSCODE") or "1234"
+
+        local pass_hash = hash.sha256(bytes(server_pass))
+        local keypad_hash = hash.sha256(bytes(keypad_pass))
+
         local header_content = string.format([==[
 #ifndef ENV_H
 #define ENV_H
@@ -426,13 +413,19 @@ target("server")
 #define SERVER_GATEWAY %s
 #define SERVER_MASK %s
 
+#define SERVER_LOGIN_PASS_HASH %q
+#define MASTER_KEYPASS_PASSCODE %q
+#define MASTER_KEYPASS_PASSCODE_HASH %q
+#ifndef KEYPAD_PASSCODE
+#define KEYPAD_PASSCODE MASTER_KEYPASS_PASSCODE
+#endif
+
 #endif // ENV_H
-]==], wifi_ssid, wifi_pass, ip_formatted, raw_ip_str, gw_formatted, mask_formatted)
+]==], wifi_ssid, wifi_pass, ip_formatted, raw_ip_str, gw_formatted, mask_formatted, pass_hash, keypad_pass, keypad_hash)
 
         local target_file = path.join(gendur, "credentials.h")
         io.writefile(target_file, header_content)
 
-        -- 2. Generate buildinfo.h & buildinfo.cpp (regenerated on every build)
         local buildinfo_h = path.join(gendur, "buildinfo.h")
         local buildinfo_cpp = path.join(gendur, "buildinfo.cpp")
         if not os.isfile(buildinfo_h) then
@@ -451,8 +444,10 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
 ]==], date_str, time_str))
 
         target:add("files", buildinfo_cpp)
+    end)
 
-        -- 3. Preprocess linker scripts
+    before_build(function (target)
+        local outdir = target:targetdir()
         local gcc = path.join(pdir, "firmware/lib/esp8266/tools/xtensa-lx106-elf/bin", "xtensa-lx106-elf-gcc")
         local sdk_ld = path.join(pdir, "firmware/lib/esp8266/tools/sdk/ld")
         local local_flash_ld = path.join(outdir, "local.eagle.flash.ld")
@@ -488,7 +483,6 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
         local bin_path = path.join(target:targetdir(), "server.bin")
         local eboot_path = path.join(pdir, "firmware/lib/esp8266/bootloaders/eboot/eboot.elf")
 
-        -- 1. Generate firmware .bin image
         print("Creating binary image: %s", bin_path)
         os.execv(python, {
             path.join(tools_dir, "elf2bin.py"),
@@ -501,13 +495,9 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
             "--out", bin_path
         })
 
-        -- 2. Generate LittleFS .bin filesystem image
         local mklittlefs_tool = path.join(pdir, "firmware/lib/esp8266/tools", "mklittlefs/mklittlefs")
         local fs_bin_path = path.join(target:targetdir(), "littlefs.bin")
-        local static_dir = path.join(pdir, "firmware/static")
-        if not os.isdir(static_dir) then
-            static_dir = path.join(pdir, "static")
-        end
+        local static_dir = path.join(pdir, "static")
         print("Creating LittleFS image from %s: %s", static_dir, fs_bin_path)
         os.execv(mklittlefs_tool, {
             "-c", static_dir,
@@ -517,7 +507,6 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
             fs_bin_path
         })
 
-        -- 3. Report memory consumption
         os.execv(python, {
             "-X", "utf8",
             path.join(tools_dir, "sizes.py"),
@@ -528,9 +517,6 @@ _tBuildInfo _BuildInfo = {"%s", "%s", "1.0.0", "3.1.2"};
     end)
 target_end()
 
--- ----------------------------------------------------------------------------
--- Targets: Arduino Nano (AVR ATmega328P)
--- ----------------------------------------------------------------------------
 target("nano_core")
     set_kind("static")
     set_default(false)
@@ -563,7 +549,12 @@ target("master_node")
     set_toolchains("avr")
     add_rules("avr_nano.config")
 
-    add_files("firmware/master_node.cpp")
+    add_files(
+        "firmware/master_node.cpp",
+        "firmware/master_keypad.cpp",
+        "firmware/master_rs485.cpp",
+        "firmware/node_sensor.cpp"
+    )
     add_deps("nano_core", "arduino_rs485")
 
     after_build(function (target)
@@ -605,7 +596,7 @@ target("slave_node")
     set_toolchains("avr")
     add_rules("avr_nano.config")
 
-    add_files("firmware/nano_node.cpp")
+    add_files("firmware/nano_node.cpp", "firmware/node_sensor.cpp")
     add_deps("nano_core", "arduino_rs485")
 
     after_build(function (target)
@@ -651,13 +642,10 @@ target("node_station")
     set_toolchains("avr")
     add_rules("avr_nano.config")
 
-    add_files("firmware/nano_node.cpp")
+    add_files("firmware/nano_node.cpp", "firmware/node_sensor.cpp")
     add_deps("nano_core", "arduino_rs485")
 target_end()
 
--- ----------------------------------------------------------------------------
--- Tasks: Flash & Monitor
--- ----------------------------------------------------------------------------
 task("flash")
     set_menu({
         usage = "xmake flash [options]",
@@ -687,13 +675,11 @@ task("flash")
 
         local flasher_tool = path.join(pdir, "firmware/tools/flasher.py")
         
-        -- Build appropriate target or all targets
         if target_name == "esp8266" or target_name == "server" or target_name == "nodemcu" then
             os.exec("xmake build server")
         elseif target_name == "node_station" or target_name == "nano" or target_name == "arduino" or target_name == "avr" then
             os.exec("xmake build node_station")
         else
-            -- auto: build default targets
             os.exec("xmake")
         end
 
@@ -741,7 +727,6 @@ task("flash_fs")
         import("core.base.option")
         import("core.project.project")
 
-        -- Ensure server target is built
         os.exec("xmake build server")
 
         local target = project.target("server")
