@@ -226,9 +226,9 @@ void init_http_server() {
   const auto local_ip = SERVER_IP;
   const auto gateway = SERVER_GATEWAY;
   const auto subnet = SERVER_MASK;
-  WiFi.config(local_ip, gateway, subnet);
 
   WiFi.mode(WIFI_STA);
+  WiFi.config(local_ip, gateway, subnet);
   WiFi.begin(WIFI_SSID, WIFI_PSWD);
 
   const uint32_t start_wifi = millis();
