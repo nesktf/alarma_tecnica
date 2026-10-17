@@ -37,7 +37,8 @@ enum AlarmState : uint8_t {
   ALARM_STATE_DISARMED = 0x00,
   ALARM_STATE_ARMING = 0x01,
   ALARM_STATE_ARMED = 0x02,
-  ALARM_STATE_ALARM = 0x03
+  ALARM_STATE_ALARM = 0x03,
+  ALARM_STATE_GRACE = 0x04
 };
 
 enum TriggerReason : uint8_t {
@@ -63,6 +64,7 @@ typedef struct __attribute__((packed)) {
   uint8_t payload_len;
   uint8_t alarm_state;
   uint16_t arming_time_s;
+  uint16_t grace_time_s;
   uint8_t trigger_reason;
   uint8_t trigger_sector;
   gw_sector_state_t sectors[5];

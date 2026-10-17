@@ -1,6 +1,7 @@
 :root {
   --color-active: #2563eb;
   --color-armed: #16a34a;
+  --color-grace: #ea580c;
   --color-alarm: #dc2626;
   --color-disabled: #64748b;
   --bg-main: #0f172a;
@@ -157,6 +158,9 @@ dialog.login-modal:not([open]) {
 .state-armed .traffic-light-beacon { background: #3b82f6; animation: beacon-pulse 2s infinite; }
 .state-armed .traffic-light-text { color: #93c5fd; }
 
+.state-grace .traffic-light-beacon { background: var(--color-grace); animation: beacon-blink 0.4s infinite; }
+.state-grace .traffic-light-text { color: #fdba74; }
+
 .state-alarm .traffic-light-beacon { background: var(--color-alarm); animation: beacon-blink 0.3s infinite; }
 .state-alarm .traffic-light-text { color: #fca5a5; }
 
@@ -169,12 +173,54 @@ dialog.login-modal:not([open]) {
   50% { transform: scale(1.2); opacity: 0.7; }
 }
 
-.arm-btn, .sound-toggle-btn, .logout-btn {
+.arm-btn, .sound-toggle-btn, .logout-btn, .grace-disarm-btn {
   min-height: 44px;
   min-width: 44px;
   margin: 0;
   font-size: 0.875rem;
   padding: 0.4rem 0.8rem;
+}
+
+.grace-alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: #7c2d12;
+  border: 1px solid #f97316;
+  color: #ffedd5;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.grace-alert-banner[hidden] {
+  display: none;
+}
+
+.grace-alert-message {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+}
+
+.grace-disarm-btn {
+  background: #fff7ed;
+  color: #7c2d12;
+  border: 1px solid #fed7aa;
+  font-weight: 700;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.grace-disarm-btn:hover,
+.grace-disarm-btn:focus-visible {
+  background: #ffedd5;
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
 }
 
 /* Workspace layout */
@@ -261,6 +307,12 @@ dialog.login-modal:not([open]) {
   stroke: var(--color-armed);
 }
 
+.sector-poly.state-grace {
+  fill: rgba(234, 88, 12, 0.65);
+  stroke: var(--color-grace);
+  animation: beacon-blink 0.6s infinite;
+}
+
 .sector-poly.state-alarm {
   fill: rgba(220, 38, 38, 0.65);
   stroke: var(--color-alarm);
@@ -345,6 +397,7 @@ dialog.login-modal:not([open]) {
 
 .legend-dot.color-active   { background: var(--color-active); }
 .legend-dot.color-armed    { background: var(--color-armed); }
+.legend-dot.color-grace    { background: var(--color-grace); }
 .legend-dot.color-alarm    { background: var(--color-alarm); }
 .legend-dot.color-disabled { background: var(--color-disabled); }
 
@@ -358,6 +411,7 @@ dialog.login-modal:not([open]) {
 
 .status-chip.normal   { background: rgba(37, 99, 235, 0.2); color: #93c5fd; }
 .status-chip.armed    { background: rgba(22, 163, 74, 0.2); color: #86efac; }
+.status-chip.grace    { background: rgba(234, 88, 12, 0.25); color: #fed7aa; }
 .status-chip.alarm    { background: rgba(220, 38, 38, 0.2); color: #fca5a5; }
 .status-chip.disabled { background: rgba(100, 116, 139, 0.2); color: #cbd5e1; }
 
@@ -460,8 +514,13 @@ dialog.login-modal:not([open]) {
 .events-drawer summary {
   font-weight: 600;
   cursor: pointer;
-  outline: none;
   font-size: 0.95rem;
+}
+
+.events-drawer summary:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .events-table-wrapper {

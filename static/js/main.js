@@ -8,6 +8,9 @@
     soundEnabled: false,
     systemState: "DISARMED",
     armingRemainingS: 0,
+    graceRemainingS: 0,
+    triggerReason: 0,
+    triggerSector: 0,
     sectors: [],
     events: []
   };
@@ -102,6 +105,9 @@
     soundIcon: document.getElementById("soundIcon"),
     soundText: document.getElementById("soundText"),
     logoutBtn: document.getElementById("logoutBtn"),
+    graceAlertBanner: document.getElementById("graceAlertBanner"),
+    graceAlertText: document.getElementById("graceAlertText"),
+    graceDisarmBtn: document.getElementById("graceDisarmBtn"),
     inspectorTitle: document.getElementById("inspectorTitle"),
     inspectorStatusChip: document.getElementById("inspectorStatusChip"),
     inspectorContent: document.getElementById("inspectorContent"),
@@ -165,12 +171,15 @@
     state.authenticated = false;
     state.authToken = null;
     localStorage.removeItem("auth_token");
+    soundPlayer.stop();
+    if (dom.graceAlertBanner) {
+      dom.graceAlertBanner.hidden = true;
+    }
     dom.loginModal.setAttribute("open", "");
     addEvent("Sistema", "info", "Sesión cerrada por el operador");
   }
 
-  async function toggleArmSystem() {
-    const shouldArm = (state.systemState === "DISARMED");
+  async function setArmSystem(shouldArm) {
     try {
       await apiFetch("/api/system/arm", {
         method: "POST",
@@ -182,6 +191,11 @@
     } catch (err) {
       console.error("Error al armar/desarmar:", err);
     }
+  }
+
+  async function toggleArmSystem() {
+    const shouldArm = (state.systemState === "DISARMED");
+    return setArmSystem(shouldArm);
   }
 
   async function toggleSector(sectorId, enabled) {
@@ -243,7 +257,14 @@
     const st = alarmSys.state || "DISARMED";
     const prev = state.systemState;
     state.systemState = st;
-    state.armingRemainingS = alarmSys.arming_remaining_s || 0;
+    state.armingRemainingS = Math.ceil(alarmSys.arming_remaining_s || 0);
+    state.graceRemainingS = Math.ceil(
+      alarmSys.grace_remaining_s !== undefined
+        ? alarmSys.grace_remaining_s
+        : 0
+    );
+    state.triggerReason = alarmSys.trigger_reason || 0;
+    state.triggerSector = alarmSys.trigger_sector || 0;
 
     dom.trafficLight.className = "traffic-light-pill";
     dom.trafficLightState.textContent = st;
@@ -253,18 +274,35 @@
       dom.armingTimer.hidden = false;
       dom.armingTimer.textContent = `${state.armingRemainingS}s`;
       dom.armToggleBtn.textContent = "Cancelar Armado";
+      if (dom.graceAlertBanner) dom.graceAlertBanner.hidden = true;
     } else if (st === "ARMED") {
       dom.trafficLight.classList.add("state-armed");
       dom.armingTimer.hidden = true;
       dom.armToggleBtn.textContent = "Desarmar Sistema";
+      if (dom.graceAlertBanner) dom.graceAlertBanner.hidden = true;
+    } else if (st === "GRACE") {
+      dom.trafficLight.classList.add("state-grace");
+      dom.trafficLightState.textContent = "PRE-ALARMA";
+      dom.armingTimer.hidden = false;
+      dom.armingTimer.textContent = `${state.graceRemainingS}s`;
+      dom.armToggleBtn.textContent = "Cancelar / Desarmar";
+      if (dom.graceAlertBanner) {
+        const trigSec = state.sectors.find(s => s.id === state.triggerSector);
+        const secLabel = trigSec ? trigSec.name : (state.triggerSector ? `Sector ${state.triggerSector}` : "sector activo");
+        dom.graceAlertText.textContent =
+          `Movimiento detectado en ${secLabel}. La sirena se activará en ${state.graceRemainingS}s.`;
+        dom.graceAlertBanner.hidden = false;
+      }
     } else if (st === "ALARM") {
       dom.trafficLight.classList.add("state-alarm");
       dom.armingTimer.hidden = true;
       dom.armToggleBtn.textContent = "Silenciar / Desarmar";
+      if (dom.graceAlertBanner) dom.graceAlertBanner.hidden = true;
     } else {
       dom.trafficLight.classList.add("state-disarmed");
       dom.armingTimer.hidden = true;
       dom.armToggleBtn.textContent = "Armar Sistema";
+      if (dom.graceAlertBanner) dom.graceAlertBanner.hidden = true;
     }
 
     if (st === "ALARM" && state.soundEnabled) {
@@ -276,7 +314,7 @@
     if (prev !== st) {
       let sev = "info";
       if (st === "ALARM") sev = "critical";
-      if (st === "ARMED") sev = "warning";
+      if (st === "ARMED" || st === "GRACE") sev = "warning";
       addEvent("Central", sev, `Estado de alarma transicionado a: ${st}`);
     }
   }
@@ -293,9 +331,17 @@
 
       if (!sec.enabled) {
         poly.classList.add("state-disabled");
-      } else if (state.systemState === "ALARM" && (sec.motion || sec.panic || !sec.online)) {
+      } else if (
+        state.systemState === "ALARM" &&
+        (sec.id === state.triggerSector || sec.motion || sec.panic || !sec.online)
+      ) {
         poly.classList.add("state-alarm");
-      } else if (state.systemState === "ARMED") {
+      } else if (
+        state.systemState === "GRACE" &&
+        (sec.id === state.triggerSector || sec.motion)
+      ) {
+        poly.classList.add("state-grace");
+      } else if (state.systemState === "ARMED" || state.systemState === "GRACE") {
         poly.classList.add("state-armed");
       } else {
         poly.classList.add("state-active");
@@ -315,10 +361,19 @@
     if (!sec.enabled) {
       chipClass = "disabled";
       chipText = "Deshabilitado";
-    } else if (sec.panic || (sec.motion && state.systemState === "ARMED")) {
+    } else if (
+      sec.panic ||
+      (state.systemState === "ALARM" && (sec.id === state.triggerSector || sec.motion || !sec.online))
+    ) {
       chipClass = "alarm";
       chipText = "Disparo Activo";
-    } else if (state.systemState === "ARMED") {
+    } else if (
+      state.systemState === "GRACE" &&
+      (sec.id === state.triggerSector || sec.motion)
+    ) {
+      chipClass = "grace";
+      chipText = `Pre-alarma (${state.graceRemainingS}s)`;
+    } else if (state.systemState === "ARMED" || state.systemState === "GRACE") {
       chipClass = "armed";
       chipText = "Armado";
     }
@@ -362,6 +417,8 @@
       const res = await apiFetch("/api/state");
       if (res.status === 401) {
         state.authenticated = false;
+        soundPlayer.stop();
+        if (dom.graceAlertBanner) dom.graceAlertBanner.hidden = true;
         dom.loginModal.setAttribute("open", "");
         return;
       }
@@ -369,6 +426,8 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
+      state.authenticated = true;
+      dom.loginModal.removeAttribute("open");
 
       dom.netStatusBadge.className = "badge";
       if (data.master_connected) {
@@ -379,12 +438,15 @@
         dom.netStatusBadge.style.color = "#fca5a5";
       }
 
+      if (Array.isArray(data.sectors)) {
+        state.sectors = data.sectors;
+      }
+
       if (data.alarm_system) {
         updateTrafficLight(data.alarm_system);
       }
 
       if (Array.isArray(data.sectors)) {
-        state.sectors = data.sectors;
         updateMapOverlays(data.sectors);
         renderInspector();
       }
@@ -404,6 +466,10 @@
     dom.logoutBtn.addEventListener("click", () => doLogout());
 
     dom.armToggleBtn.addEventListener("click", () => toggleArmSystem());
+
+    if (dom.graceDisarmBtn) {
+      dom.graceDisarmBtn.addEventListener("click", () => setArmSystem(false));
+    }
 
     dom.soundToggleBtn.addEventListener("click", () => {
       state.soundEnabled = !state.soundEnabled;

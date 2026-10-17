@@ -49,12 +49,26 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
     device_host = "127.0.0.1"
     device_port = 80
     virtual_base_url: str | None = None
+    active_tokens: set[str] = set()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC_ROOT), **kwargs)
 
     def _request_path(self) -> str:
         return urlsplit(self.path).path or "/"
+
+    def _is_authenticated(self) -> bool:
+        token = self.headers.get("X-Auth-Token", "").strip()
+        if token and token in self.__class__.active_tokens:
+            return True
+        cookie_header = self.headers.get("Cookie", "")
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("token="):
+                cookie_token = part.split("=", 1)[1].strip()
+                if cookie_token and cookie_token in self.__class__.active_tokens:
+                    return True
+        return False
 
     def _send_json(self, status: int, data: dict) -> None:
         body = json.dumps(data, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -82,7 +96,9 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
             "routes": ["/", "/api/state", "/api/controls"],
         }
         payload["ws"] = {"connected": False, "port": 0}
-        payload["auth"] = {"authenticated": False, "method": "none"}
+        auth = self._is_authenticated()
+        payload["authenticated"] = auth
+        payload["auth"] = {"authenticated": auth, "method": "token" if auth else "none"}
         return payload
 
     def _proxy_remote_state(self) -> None:
@@ -112,6 +128,9 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
         path = self._request_path()
         self.model.record_http_request("GET", path)
         if path == "/api/state":
+            if not self._is_authenticated():
+                self._send_json(401, {"error": "Unauthorized"})
+                return
             self._send_json(200, self._state_payload())
             return
         if path == "/api/proxy":
@@ -150,10 +169,12 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
                 hashlib.sha256(b"admin123").hexdigest(),
             }
             if pwd in valid_passwords:
+                token = "simulated_token_12345"
+                self.__class__.active_tokens.add(token)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Set-Cookie", "token=simulated_token_12345; Path=/")
-                resp = json.dumps({"authenticated": True, "token": "simulated_token_12345"}).encode("utf-8")
+                self.send_header("Set-Cookie", f"token={token}; Path=/; HttpOnly")
+                resp = json.dumps({"authenticated": True, "token": token}).encode("utf-8")
                 self.send_header("Content-Length", str(len(resp)))
                 self.end_headers()
                 self.wfile.write(resp)
@@ -162,6 +183,7 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
             return
 
         if path == "/api/logout":
+            self.__class__.active_tokens.clear()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Set-Cookie", "token=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
@@ -172,22 +194,31 @@ class SimulatorHandler(SimpleHTTPRequestHandler):
             return
 
         if path == "/api/system/arm":
+            if not self._is_authenticated():
+                self._send_json(401, {"error": "Unauthorized"})
+                return
             arm = str(payload.get("arm", "false")).lower() in ("true", "1")
             self.model.apply_controls({"set_alarm_state": "ARMING" if arm else "DISARMED"})
             self._send_json(200, {"status": "ok"})
             return
 
         if path == "/api/sector/toggle":
+            if not self._is_authenticated():
+                self._send_json(401, {"error": "Unauthorized"})
+                return
             sec_id = int(payload.get("sector_id", 0))
             enabled = str(payload.get("enabled", "true")).lower() in ("true", "1")
             if 1 <= sec_id <= 5:
                 sector = self.model._sectors.get(sec_id)
                 if sector:
-                    sector["active"] = enabled
+                    sector["enabled"] = enabled
             self._send_json(200, {"status": "ok"})
             return
 
         if path == "/api/sector/ping":
+            if not self._is_authenticated():
+                self._send_json(401, {"error": "Unauthorized"})
+                return
             self._send_json(200, {"status": "ok"})
             return
 

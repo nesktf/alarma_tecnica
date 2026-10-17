@@ -20,11 +20,12 @@ class DeviceModel:
     SENSOR_MIN_CM = 2.0
     SENSOR_MAX_CM = 400.0
     ARMING_DURATION_S = 60
+    GRACE_DURATION_S = 30
     V_BUS_MIN = 0.0
     V_BUS_MAX = 30.0
     V_BUS_WARNING_V = 11.8
     V_BUS_CRITICAL_V = 11.0
-    ALARM_STATES = {"DISARMED", "ARMING", "ARMED", "ALARM"}
+    ALARM_STATES = {"DISARMED", "ARMING", "ARMED", "GRACE", "ALARM"}
     SECTOR_DEFINITIONS = (
         (1, "Área Operativa", "Arduino Nano (central)", True),
         (2, "Automotores", "RS485 nodo 0x02", False),
@@ -48,6 +49,9 @@ class DeviceModel:
         self._alarm_events: deque[dict] = deque(maxlen=50)
         self._alarm_state = "DISARMED"
         self._arming_until: float | None = None
+        self._grace_until: float | None = None
+        self._trigger_reason = 0
+        self._trigger_sector = 0
         self._v_bus = 12.4
         self._nodes_state = {
             i: {
@@ -65,6 +69,7 @@ class DeviceModel:
                 "name": name,
                 "node": node,
                 "has_panic": has_panic,
+                "enabled": True,
                 "motion": False,
                 "active": False,
                 "no_response": False,
@@ -129,6 +134,8 @@ class DeviceModel:
             "simulator": True,
             "board": "NodeMCU ESP8266",
             "state": state,
+            "gateway_online": True,
+            "master_connected": state == "running",
             "uptime_ms": max(0, int((now - self._started_at) * 1000)),
             "wifi": self._wifi_available,
             "filesystem": self._filesystem_mounts,
@@ -168,6 +175,19 @@ class DeviceModel:
                 "sensor_max_cm": self.SENSOR_MAX_CM,
             },
             "alarm_system": self._alarm_snapshot(now),
+            "sectors": [
+                {
+                    "id": s["id"],
+                    "name": s["name"],
+                    "enabled": s.get("enabled", True),
+                    "online": not s["no_response"],
+                    "motion": s["motion"],
+                    "panic": s["active"],
+                    "distance_cm": self._nodes_state[s["id"]]["distance_cm"],
+                    "age_ms": age_ms or 0,
+                }
+                for s in self._sectors.values()
+            ],
             "logs": list(self._logs),
             "ws": {"connected": False, "port": 0},
             "auth": {"authenticated": False, "method": "none"},
@@ -179,8 +199,15 @@ class DeviceModel:
         for sector in self._sectors.values():
             if sector["no_response"]:
                 status = "no_response"
-            elif sector["active"] or (sector["motion"] and self._alarm_state == "ALARM"):
+            elif sector["active"] or (
+                (sector["motion"] or sector["id"] == self._trigger_sector)
+                and self._alarm_state == "ALARM"
+            ):
                 status = "alarm"
+            elif (
+                sector["motion"] or sector["id"] == self._trigger_sector
+            ) and self._alarm_state == "GRACE":
+                status = "grace"
             elif sector["motion"]:
                 status = "motion"
             else:
@@ -191,6 +218,10 @@ class DeviceModel:
         if self._alarm_state == "ARMING" and self._arming_until is not None:
             remaining = max(0.0, self._arming_until - now)
 
+        grace_remaining = 0.0
+        if self._alarm_state == "GRACE" and self._grace_until is not None:
+            grace_remaining = max(0.0, self._grace_until - now)
+
         v_bus_status = (
             "alarm" if self._v_bus < self.V_BUS_CRITICAL_V
             else "warning" if self._v_bus < self.V_BUS_WARNING_V
@@ -199,6 +230,9 @@ class DeviceModel:
         return {
             "state": self._alarm_state,
             "arming_remaining_s": remaining,
+            "grace_remaining_s": grace_remaining,
+            "trigger_reason": self._trigger_reason,
+            "trigger_sector": self._trigger_sector,
             "v_bus": self._v_bus,
             "v_bus_status": v_bus_status,
             "active_areas": [
@@ -232,11 +266,30 @@ class DeviceModel:
             "details": details,
         })
 
-    def _raise_alarm(self, details: str, area_id: int | None = None) -> None:
+    def _enter_grace_period(self, details: str, area_id: int, now: float) -> None:
+        if self._alarm_state in {"GRACE", "ALARM"}:
+            return
+        self._alarm_state = "GRACE"
+        self._arming_until = None
+        self._grace_until = now + self.GRACE_DURATION_S
+        self._trigger_reason = 2
+        self._trigger_sector = area_id
+        self._record_alarm_event(
+            "warning", "ALARM_STATE_GRACE", "Pre-alarma (tiempo de gracia)", details, area_id
+        )
+        self._log("Alarm state changed to GRACE")
+
+    def _raise_alarm(
+        self, details: str, area_id: int | None = None, reason: int = 1
+    ) -> None:
         if self._alarm_state == "ALARM":
             return
         self._alarm_state = "ALARM"
         self._arming_until = None
+        self._grace_until = None
+        self._trigger_reason = reason
+        if area_id is not None:
+            self._trigger_sector = area_id
         self._record_alarm_event("critical", "ALARM_TRIGGERED", "Alarma general", details, area_id)
         self._log("Alarm state changed to ALARM")
 
@@ -244,8 +297,11 @@ class DeviceModel:
         previous_state = self._alarm_state
         self._alarm_state = state
         self._arming_until = now + self.ARMING_DURATION_S if state == "ARMING" else None
+        self._grace_until = now + self.GRACE_DURATION_S if state == "GRACE" else None
 
         if state == "DISARMED":
+            self._trigger_reason = 0
+            self._trigger_sector = 0
             for sector in self._sectors.values():
                 sector["active"] = False
                 sector["motion"] = False
@@ -254,7 +310,7 @@ class DeviceModel:
 
         if previous_state != state:
             self._record_alarm_event(
-                "warning" if state in {"ARMING", "ALARM"} else "info",
+                "warning" if state in {"ARMING", "GRACE", "ALARM"} else "info",
                 f"ALARM_STATE_{state}",
                 f"Estado central: {state}",
                 f"Transición desde {previous_state}.",
@@ -263,8 +319,10 @@ class DeviceModel:
 
         if state == "ARMED":
             for sector in self._sectors.values():
-                if sector["motion"] and not sector["no_response"]:
-                    self._raise_alarm("Movimiento activo al completar el armado.", sector["id"])
+                if sector.get("enabled", True) and sector["motion"] and not sector["no_response"]:
+                    self._enter_grace_period(
+                        "Movimiento activo al completar el armado.", sector["id"], now
+                    )
                     break
 
     def _update_arming(self, now: float) -> None:
@@ -274,6 +332,16 @@ class DeviceModel:
             and now >= self._arming_until
         ):
             self._set_alarm_state("ARMED", now)
+        elif (
+            self._alarm_state == "GRACE"
+            and self._grace_until is not None
+            and now >= self._grace_until
+        ):
+            self._raise_alarm(
+                "Tiempo de gracia agotado tras detección de movimiento.",
+                self._trigger_sector or None,
+                reason=2,
+            )
 
     def _reset_all(self, now: float) -> None:
         self._started_at = now
@@ -285,6 +353,9 @@ class DeviceModel:
         self._last_distance_cm = None
         self._alarm_state = "DISARMED"
         self._arming_until = None
+        self._grace_until = None
+        self._trigger_reason = 0
+        self._trigger_sector = 0
         self._v_bus = 12.4
         self._nodes_state = {
             i: {
@@ -298,6 +369,7 @@ class DeviceModel:
         }
         self._last_request = "/"
         for sector in self._sectors.values():
+            sector["enabled"] = True
             sector["motion"] = False
             sector["active"] = False
             sector["no_response"] = False
@@ -456,8 +528,13 @@ class DeviceModel:
                 "Entrada PIR virtual activada." if sector["motion"] else "Entrada PIR virtual desactivada.",
                 sector_id,
             )
-            if sector["motion"] and self._alarm_state == "ARMED" and not sector["no_response"]:
-                self._raise_alarm("Movimiento detectado con el sistema armado.", sector_id)
+            if (
+                sector.get("enabled", True)
+                and sector["motion"]
+                and self._alarm_state == "ARMED"
+                and not sector["no_response"]
+            ):
+                self._enter_grace_period("Movimiento detectado con el sistema armado.", sector_id, now)
 
         if "emergency" in sector_actions:
             sector_id = sector_actions["emergency"]
@@ -473,7 +550,7 @@ class DeviceModel:
                     "Pulsador virtual activado.",
                     sector_id,
                 )
-                self._raise_alarm("Pulsador de emergencia activado.", sector_id)
+                self._raise_alarm("Pulsador de emergencia activado.", sector_id, reason=1)
             else:
                 if not sector["motion"]:
                     node["status"] = (node["status"] & ~0x01) | 0x04
@@ -500,5 +577,11 @@ class DeviceModel:
                 "Estado virtual del bus RS485 actualizado.",
                 sector_id,
             )
+            if (
+                sector["no_response"]
+                and sector.get("enabled", True)
+                and self._alarm_state in {"ARMED", "GRACE"}
+            ):
+                self._raise_alarm("Sector sin respuesta en bus RS485.", sector_id, reason=3)
 
         self._log(f"Controls updated; boot state: {self._boot_state}")

@@ -123,11 +123,11 @@
         "sensor_max_cm": {"type": "number"},
         "alarm_state": {
           "type": "string",
-          "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
+          "enum": ["DISARMED", "ARMING", "ARMED", "GRACE", "ALARM"]
         },
         "set_alarm_state": {
           "type": "string",
-          "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
+          "enum": ["DISARMED", "ARMING", "ARMED", "GRACE", "ALARM"]
         },
         "v_bus": {"type": "number", "minimum": 0},
         "toggle_motion": {"type": "integer", "minimum": 1, "maximum": 5},
@@ -145,9 +145,12 @@
       "properties": {
         "state": {
           "type": "string",
-          "enum": ["DISARMED", "ARMING", "ARMED", "ALARM"]
+          "enum": ["DISARMED", "ARMING", "ARMED", "GRACE", "ALARM"]
         },
         "arming_remaining_s": {"type": "number", "minimum": 0},
+        "grace_remaining_s": {"type": "number", "minimum": 0},
+        "trigger_reason": {"type": "integer", "minimum": 0},
+        "trigger_sector": {"type": "integer", "minimum": 0},
         "v_bus": {"type": "number", "minimum": 0},
         "v_bus_status": {
           "type": "string",
@@ -171,13 +174,14 @@
               "name": {"type": "string"},
               "node": {"type": "string"},
               "has_panic": {"type": "boolean"},
+              "enabled": {"type": "boolean"},
               "motion": {"type": "boolean"},
               "active": {"type": "boolean"},
               "no_response": {"type": "boolean"},
               "projected": {"type": "boolean"},
               "status": {
                 "type": "string",
-                "enum": ["normal", "motion", "alarm", "no_response", "projected"]
+                "enum": ["normal", "motion", "grace", "alarm", "no_response", "projected"]
               }
             },
             "additionalProperties": false
@@ -202,6 +206,30 @@
         }
       },
       "additionalProperties": false
+    },
+    "gateway_online": {
+      "type": "boolean"
+    },
+    "master_connected": {
+      "type": "boolean"
+    },
+    "sectors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "enabled", "online", "motion", "panic", "distance_cm", "age_ms"],
+        "properties": {
+          "id": {"type": "integer", "minimum": 1},
+          "name": {"type": "string"},
+          "enabled": {"type": "boolean"},
+          "online": {"type": "boolean"},
+          "motion": {"type": "boolean"},
+          "panic": {"type": "boolean"},
+          "distance_cm": {"type": ["number", "null"], "minimum": 0},
+          "age_ms": {"type": ["integer", "null"], "minimum": 0}
+        },
+        "additionalProperties": false
+      }
     },
     "ws": {
       "type": "object",

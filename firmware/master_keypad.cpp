@@ -79,7 +79,7 @@ void execute_keypad_action(char func_key) {
   const auto state = current_alarm_state();
   switch (func_key) {
     case '*': {
-      if (state == ALARM_STATE_ALARM || state == ALARM_STATE_ARMED ||
+      if (state == ALARM_STATE_ALARM || state == ALARM_STATE_GRACE || state == ALARM_STATE_ARMED ||
           state == ALARM_STATE_ARMING) {
         disarm_system();
       } else {

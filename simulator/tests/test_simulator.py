@@ -78,6 +78,12 @@ class DeviceModelTests(unittest.TestCase):
         self.device.apply_controls({"alarm_state": "ARMED"})
         self.device.apply_controls({"toggle_motion": 2})
         state = self.device.snapshot()["alarm_system"]
+        self.assertEqual(state["state"], "GRACE")
+        self.assertEqual(state["grace_remaining_s"], 30)
+        self.assertEqual(state["sectors"][1]["status"], "grace")
+
+        self.clock.advance_ms(30000)
+        state = self.device.snapshot()["alarm_system"]
         self.assertEqual(state["state"], "ALARM")
         self.assertEqual(state["sectors"][1]["status"], "alarm")
 
@@ -87,6 +93,33 @@ class DeviceModelTests(unittest.TestCase):
         sector = self.device.snapshot()["alarm_system"]["sectors"][1]
         self.assertEqual(sector["status"], "no_response")
         self.assertTrue(sector["no_response"])
+
+    def test_grace_period_can_be_canceled_and_alarm_can_be_disarmed(self):
+        self.device.apply_controls({"alarm_state": "ARMED"})
+        self.device.apply_controls({"toggle_motion": 1})
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "GRACE")
+        self.assertEqual(alarm["grace_remaining_s"], 30)
+
+        self.clock.advance_ms(12000)
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "GRACE")
+        self.assertEqual(alarm["grace_remaining_s"], 18)
+
+        self.device.apply_controls({"set_alarm_state": "DISARMED"})
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "DISARMED")
+        self.assertEqual(alarm["grace_remaining_s"], 0)
+
+        self.device.apply_controls({"alarm_state": "ARMED"})
+        self.device.apply_controls({"toggle_motion": 1})
+        self.clock.advance_ms(30000)
+        self.assertEqual(self.device.snapshot()["alarm_system"]["state"], "ALARM")
+
+        self.device.apply_controls({"set_alarm_state": "DISARMED"})
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "DISARMED")
+        self.assertEqual(alarm["grace_remaining_s"], 0)
 
     def test_alarm_arming_completes_after_sixty_seconds(self):
         self.device.apply_controls({"alarm_state": "ARMING"})
@@ -98,9 +131,15 @@ class DeviceModelTests(unittest.TestCase):
         self.assertEqual(alarm["state"], "ARMED")
         self.assertEqual(alarm["arming_remaining_s"], 0)
 
-    def test_alarm_arming_triggers_if_motion_is_active_at_completion(self):
+    def test_alarm_arming_triggers_grace_then_alarm_if_motion_is_active_at_completion(self):
         self.device.apply_controls({"toggle_motion": 3, "alarm_state": "ARMING"})
         self.clock.advance_ms(60000)
+        alarm = self.device.snapshot()["alarm_system"]
+        self.assertEqual(alarm["state"], "GRACE")
+        self.assertEqual(alarm["grace_remaining_s"], 30)
+        self.assertEqual(alarm["sectors"][2]["status"], "grace")
+
+        self.clock.advance_ms(30000)
         alarm = self.device.snapshot()["alarm_system"]
         self.assertEqual(alarm["state"], "ALARM")
         self.assertEqual(alarm["sectors"][2]["status"], "alarm")
@@ -176,6 +215,7 @@ class SimulatorHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.previous_model = SimulatorHandler.model
+        cls.previous_tokens = set(SimulatorHandler.active_tokens)
         SimulatorHandler.model = DeviceModel(clock=FakeClock())
         cls.server = ThreadingHTTPServer(("127.0.0.1", 0), SimulatorHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
@@ -183,7 +223,9 @@ class SimulatorHttpTests(unittest.TestCase):
         cls.base_url = f"http://127.0.0.1:{cls.server.server_port}"
 
     def setUp(self):
-        SimulatorHandler.model = DeviceModel(clock=FakeClock())
+        self.clock = FakeClock()
+        SimulatorHandler.model = DeviceModel(clock=self.clock)
+        SimulatorHandler.active_tokens.clear()
 
     @classmethod
     def tearDownClass(cls):
@@ -191,14 +233,51 @@ class SimulatorHttpTests(unittest.TestCase):
         cls.thread.join()
         cls.server.server_close()
         SimulatorHandler.model = cls.previous_model
+        SimulatorHandler.active_tokens = cls.previous_tokens
 
-    def test_serves_dashboard_and_state_json(self):
+    def _login(self) -> str:
+        req = Request(
+            self.base_url + "/api/login",
+            data=b"password=1234",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with urlopen(req) as response:
+            data = json.load(response)
+        return data["token"]
+
+    def test_state_endpoint_requires_authentication(self):
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(self.base_url + "/api/state")
+        try:
+            self.assertEqual(raised.exception.code, 401)
+        finally:
+            raised.exception.close()
+
+        arm_req = Request(
+            self.base_url + "/api/system/arm",
+            data=b"arm=true",
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        with self.assertRaises(HTTPError) as raised_arm:
+            urlopen(arm_req)
+        try:
+            self.assertEqual(raised_arm.exception.code, 401)
+        finally:
+            raised_arm.exception.close()
+
+    def test_serves_dashboard_and_state_json_when_authenticated(self):
         with urlopen(self.base_url + "/") as response:
             self.assertEqual(response.status, 200)
             self.assertIn("Alarma técnica", response.read().decode("utf-8"))
-        with urlopen(self.base_url + "/api/state") as response:
+
+        token = self._login()
+        req = Request(self.base_url + "/api/state", headers={"X-Auth-Token": token})
+        with urlopen(req) as response:
             state = json.load(response)
         self.assertTrue(state["simulator"])
+        self.assertTrue(state["authenticated"])
         self.assertEqual(state["state"], "running")
 
     def test_control_api_rejects_out_of_range_sensor_values(self):
@@ -228,7 +307,9 @@ class SimulatorHttpTests(unittest.TestCase):
         self.assertEqual(state["state"], "waiting_wifi")
         self.assertFalse(state["wifi"])
 
-    def test_control_api_accepts_alarm_and_bus_controls(self):
+    def test_control_api_accepts_alarm_and_bus_controls_and_web_disarm(self):
+        token = self._login()
+
         request = Request(
             self.base_url + "/api/controls",
             data=b'{"alarm_state":"ARMED"}',
@@ -247,60 +328,76 @@ class SimulatorHttpTests(unittest.TestCase):
         )
         with urlopen(request) as response:
             state = json.load(response)
-        self.assertEqual(state["alarm_system"]["state"], "ALARM")
-        # Verify node 2 in snapshot reflects motion/alarm bit 0 (0x04 | 0x01 = 0x05)
+        self.assertEqual(state["alarm_system"]["state"], "GRACE")
+        self.assertEqual(state["alarm_system"]["grace_remaining_s"], 30)
         node2 = next(n for n in state["nodes"] if n["node_id"] == 2)
         self.assertEqual(node2["status"] & 0x01, 1)
+        self.assertEqual(state["alarm_system"]["sectors"][1]["status"], "grace")
 
+        # Advance 30s so grace period expires into full ALARM
+        self.clock.advance_ms(30000)
+        state_req = Request(self.base_url + "/api/state", headers={"X-Auth-Token": token})
+        with urlopen(state_req) as response:
+            state = json.load(response)
+        self.assertEqual(state["alarm_system"]["state"], "ALARM")
         self.assertEqual(state["alarm_system"]["sectors"][1]["status"], "alarm")
 
-        request = Request(
-            self.base_url + "/api/controls",
-            data=b'{"set_alarm_state":"DISARMED"}',
-            headers={"Content-Type": "application/json"},
+        # Disarm via web endpoint /api/system/arm
+        disarm_req = Request(
+            self.base_url + "/api/system/arm",
+            data=b"arm=false",
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-Auth-Token": token,
+            },
             method="POST",
         )
-        with urlopen(request) as response:
+        with urlopen(disarm_req) as response:
+            self.assertEqual(response.status, 200)
+
+        with urlopen(state_req) as response:
             state = json.load(response)
         self.assertEqual(state["alarm_system"]["state"], "DISARMED")
+        self.assertEqual(state["alarm_system"]["grace_remaining_s"], 0)
 
     def test_server_activity_is_visible_in_state_payload(self):
-       with urlopen(self.base_url + "/api/state") as response:
-           state = json.load(response)
-       self.assertEqual(state["server"]["status"], "running")
-       self.assertEqual(state["server"]["last_request"], "/api/state")
-       self.assertIn("/api/state", state["server"]["routes"])
-       self.assertIn("/api/controls", state["server"]["routes"])
-       self.assertIn("bind_url", state["server"])
-       self.assertIn("virtual_url", state["server"])
+        token = self._login()
+        req = Request(self.base_url + "/api/state", headers={"X-Auth-Token": token})
+        with urlopen(req) as response:
+            state = json.load(response)
+        self.assertEqual(state["server"]["status"], "running")
+        self.assertEqual(state["server"]["last_request"], "/api/state")
+        self.assertIn("/api/state", state["server"]["routes"])
+        self.assertIn("/api/controls", state["server"]["routes"])
+        self.assertIn("bind_url", state["server"])
+        self.assertIn("virtual_url", state["server"])
 
     def test_proxy_can_forward_a_remote_state_endpoint(self):
-       class PreviewHandler(BaseHTTPRequestHandler):
-           def do_GET(self):
-               payload = json.dumps({"simulator": False, "state": "running", "wifi": True}).encode("utf-8")
-               self.send_response(200)
-               self.send_header("Content-Type", "application/json; charset=utf-8")
-               self.send_header("Content-Length", str(len(payload)))
-               self.end_headers()
-               self.wfile.write(payload)
+        class PreviewHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                payload = json.dumps({"simulator": False, "state": "running", "wifi": True}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
 
-           def log_message(self, *args, **kwargs):
-               return
+            def log_message(self, *args, **kwargs):
+                return
 
-       remote_server = ThreadingHTTPServer(("127.0.0.1", 0), PreviewHandler)
-       thread = threading.Thread(target=remote_server.serve_forever, daemon=True)
-       thread.start()
-       try:
-           target = f"http://127.0.0.1:{remote_server.server_port}/api/state"
-           with urlopen(self.base_url + "/api/proxy?url=" + quote(target)) as response:
-               state = json.load(response)
-           self.assertEqual(state["state"], "running")
-           self.assertFalse(state["simulator"])
-       finally:
-           remote_server.shutdown()
-           thread.join()
-           remote_server.server_close()
-
+        remote_server = ThreadingHTTPServer(("127.0.0.1", 0), PreviewHandler)
+        thread = threading.Thread(target=remote_server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            target = f"http://127.0.0.1:{remote_server.server_port}/api/state"
+            with urlopen(self.base_url + "/api/proxy?url=" + quote(target)) as response:
+                state = json.load(response)
+            self.assertEqual(state["state"], "running")
+            self.assertFalse(state["simulator"])
+        finally:
+            remote_server.shutdown()
+            thread.join()
+            remote_server.server_close()
 
     def test_proxy_rejects_unsafe_targets_and_oversized_payloads(self):
         invalid_target = quote("http://127.0.0.1:8080/forbidden")
@@ -312,11 +409,13 @@ class SimulatorHttpTests(unittest.TestCase):
             raised.exception.close()
 
     def test_route_normalization_handles_query_strings_and_unknown_routes(self):
+        token = self._login()
         with urlopen(self.base_url + "/?debug=true") as response:
             self.assertEqual(response.status, 200)
             self.assertIn("text/html", response.headers.get("Content-Type", ""))
 
-        with urlopen(self.base_url + "/api/state?param=1") as response:
+        req = Request(self.base_url + "/api/state?param=1", headers={"X-Auth-Token": token})
+        with urlopen(req) as response:
             self.assertEqual(response.status, 200)
             state = json.load(response)
             self.assertEqual(state["server"]["last_request"], "/api/state")

@@ -53,12 +53,19 @@ bool is_authenticated() {
 }
 
 void handle_get_state() {
+  if (!is_authenticated()) {
+    http_server.send(401, "application/json", "{\"error\":\"Unauthorized\"}");
+    return;
+  }
+
   const auto alarm_state_str = [](uint8_t st) -> const char* {
     switch (st) {
       case ALARM_STATE_ARMING:
         return "ARMING";
       case ALARM_STATE_ARMED:
         return "ARMED";
+      case ALARM_STATE_GRACE:
+        return "GRACE";
       case ALARM_STATE_ALARM:
         return "ALARM";
       default:
@@ -83,22 +90,21 @@ void handle_get_state() {
     }
   };
 
-  const bool auth = is_authenticated();
   const uint8_t a_state = snapshot_received ? master_snapshot.alarm_state : ALARM_STATE_DISARMED;
   const uint16_t arm_time = snapshot_received ? master_snapshot.arming_time_s : 0;
+  const uint16_t grace_time = snapshot_received ? master_snapshot.grace_time_s : 0;
   const uint8_t trig_reason = snapshot_received ? master_snapshot.trigger_reason : 0;
   const uint8_t trig_sector = snapshot_received ? master_snapshot.trigger_sector : 0;
 
   char buff[1536];
   int offset =
     snprintf(buff, sizeof(buff),
-             "{\"authenticated\":%s,\"gateway_online\":true,\"master_connected\":%s,"
-             "\"alarm_system\":{\"state\":\"%s\",\"arming_remaining_s\":%u,\"trigger_reason\":%u,"
-             "\"trigger_sector\":%u},"
+             "{\"authenticated\":true,\"gateway_online\":true,\"master_connected\":%s,"
+             "\"alarm_system\":{\"state\":\"%s\",\"arming_remaining_s\":%u,"
+             "\"grace_remaining_s\":%u,\"trigger_reason\":%u,\"trigger_sector\":%u},"
              "\"sectors\":[",
-             auth ? "true" : "false",
              (snapshot_received && (millis() - last_snapshot_rx_ms <= 3000)) ? "true" : "false",
-             alarm_state_str(a_state), arm_time, trig_reason, trig_sector);
+             alarm_state_str(a_state), arm_time, grace_time, trig_reason, trig_sector);
 
   for (uint8_t i = 0; i < 5; i++) {
     const uint8_t id = i + 1;
@@ -134,9 +140,8 @@ void handle_login() {
   }
 
   const String pass_hash = http_server.arg("password");
-  const bool valid = (pass_hash == SERVER_LOGIN_PASS_HASH
-                      || pass_hash == MASTER_KEYPASS_PASSCODE_HASH
-  );
+  const bool valid =
+    (pass_hash == SERVER_LOGIN_PASS_HASH || pass_hash == MASTER_KEYPASS_PASSCODE_HASH);
   if (!valid) {
     http_server.send(401, "application/json", "{\"error\":\"Invalid credentials\"}");
     return;

@@ -14,9 +14,10 @@ bool led_feedback_success = false;
 namespace {
 
 uint32_t arming_start_ms = 0;
+uint32_t grace_start_ms = 0;
 uint32_t last_local_sensor_ms = 0;
-TriggerReason current_trigger_reason = TRIGGER_NONE;
-uint8_t current_trigger_sector = 0;
+TriggerReason trigger_reason = TRIGGER_NONE;
+uint8_t trigger_sector = 0;
 AlarmState alarm_state = ALARM_STATE_DISARMED;
 
 void poll_local_area() {
@@ -49,10 +50,23 @@ void poll_local_area() {
     if (motion) {
       sectors[SEC_OPERATIVA].consecutive_motions++;
       if (sectors[SEC_OPERATIVA].consecutive_motions >= CONSECUTIVE_MOTION_TRIGGER_COUNT) {
-        trigger_alarm(TRIGGER_MOTION, SEC_OPERATIVA);
+        trigger_grace_period(TRIGGER_MOTION, SEC_OPERATIVA);
       }
     } else {
       sectors[SEC_OPERATIVA].consecutive_motions = 0;
+    }
+  }
+}
+
+void update_alarm_timers() {
+  const uint32_t now = millis();
+  if (alarm_state == ALARM_STATE_ARMING) {
+    if (now - arming_start_ms >= ARMING_EXIT_DELAY_MS) {
+      alarm_state = ALARM_STATE_ARMED;
+    }
+  } else if (alarm_state == ALARM_STATE_GRACE) {
+    if (now - grace_start_ms >= ALARM_GRACE_PERIOD_MS) {
+      trigger_alarm(trigger_reason, trigger_sector);
     }
   }
 }
@@ -89,6 +103,11 @@ void update_leds() {
       digitalWrite(MASTER_LED_YELLOW_PIN, ((now % 2000) < 150) ? HIGH : LOW);
       digitalWrite(MASTER_LED_RED_PIN, LOW);
     } break;
+    case ALARM_STATE_GRACE: {
+      digitalWrite(MASTER_LED_GREEN_PIN, LOW);
+      digitalWrite(MASTER_LED_YELLOW_PIN, LOW);
+      digitalWrite(MASTER_LED_RED_PIN, ((now / 250) % 2 == 0) ? HIGH : LOW);
+    } break;
     case ALARM_STATE_ALARM: {
       digitalWrite(MASTER_LED_GREEN_PIN, LOW);
       digitalWrite(MASTER_LED_YELLOW_PIN, LOW);
@@ -99,17 +118,30 @@ void update_leds() {
 
 } // namespace
 
+void trigger_grace_period(TriggerReason reason, uint8_t sector_id) {
+  if (alarm_state != ALARM_STATE_ARMED) {
+    return;
+  }
+  alarm_state = ALARM_STATE_GRACE;
+  grace_start_ms = millis();
+  trigger_reason = reason;
+  trigger_sector = sector_id;
+  digitalWrite(MASTER_SIREN_PIN, LOW);
+}
+
 void trigger_alarm(TriggerReason reason, uint8_t sector_id) {
   alarm_state = ALARM_STATE_ALARM;
-  current_trigger_reason = reason;
-  current_trigger_sector = sector_id;
+  trigger_reason = reason;
+  trigger_sector = sector_id;
   digitalWrite(MASTER_SIREN_PIN, HIGH);
 }
 
 void disarm_system() {
   alarm_state = ALARM_STATE_DISARMED;
-  current_trigger_reason = TRIGGER_NONE;
-  current_trigger_sector = 0;
+  trigger_reason = TRIGGER_NONE;
+  trigger_sector = 0;
+  arming_start_ms = 0;
+  grace_start_ms = 0;
   digitalWrite(MASTER_SIREN_PIN, LOW);
   for (uint8_t i = 1; i <= TOTAL_SECTORS; i++) {
     sectors[i].consecutive_motions = 0;
@@ -134,15 +166,19 @@ AlarmState current_alarm_state() {
 }
 
 TriggerReason current_trigger_reason() {
-  return current_trigger_reason;
+  return trigger_reason;
 }
 
 uint8_t current_trigger_sector() {
-  return current_trigger_sector;
+  return trigger_sector;
 }
 
 uint32_t arming_start_time() {
   return arming_start_ms;
+}
+
+uint32_t grace_start_time() {
+  return grace_start_ms;
 }
 
 void set_alarm_state(AlarmState state) {
@@ -182,5 +218,6 @@ void loop() {
   handle_keypad();
   poll_local_area();
   poll_rs485_slaves();
+  update_alarm_timers();
   update_leds();
 }

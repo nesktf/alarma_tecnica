@@ -14,10 +14,11 @@ enum SectorId : uint8_t {
 };
 
 // Timing and detection thresholds
-#define RS485_POLL_INTERVAL_MS           1000UL
-#define RS485_TIMEOUT_MS                 100UL
-#define NODE_OFFLINE_TIMEOUT_MS          300000UL
-#define ARMING_EXIT_DELAY_MS             30000UL
+#define RS485_POLL_INTERVAL_MS  1000UL
+#define RS485_TIMEOUT_MS        100UL
+#define NODE_OFFLINE_TIMEOUT_MS 300000UL
+#define ARMING_EXIT_DELAY_MS    30000UL
+#define ALARM_GRACE_PERIOD_MS 30000UL
 #define CONSECUTIVE_MOTION_TRIGGER_COUNT 3
 #define MOTION_DISTANCE_THRESHOLD_CM     150
 

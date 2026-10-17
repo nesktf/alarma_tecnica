@@ -34,13 +34,25 @@ void send_gateway_snapshot() {
   if (state == ALARM_STATE_ARMING) {
     uint32_t elapsed = millis() - arming_start_time();
     if (elapsed < ARMING_EXIT_DELAY_MS) {
-      snap.arming_time_s = (uint16_t)((ARMING_EXIT_DELAY_MS - elapsed) / 1000);
+      snap.arming_time_s = (uint16_t)((ARMING_EXIT_DELAY_MS - elapsed + 999) / 1000);
     } else {
       snap.arming_time_s = 0;
       set_alarm_state(ALARM_STATE_ARMED);
     }
   } else {
     snap.arming_time_s = 0;
+  }
+
+  if (state == ALARM_STATE_GRACE) {
+    uint32_t elapsed = millis() - grace_start_time();
+    if (elapsed < ALARM_GRACE_PERIOD_MS) {
+      snap.grace_time_s = (uint16_t)((ALARM_GRACE_PERIOD_MS - elapsed + 999) / 1000);
+    } else {
+      snap.grace_time_s = 0;
+      trigger_alarm(current_trigger_reason(), current_trigger_sector());
+    }
+  } else {
+    snap.grace_time_s = 0;
   }
 
   uint32_t now = millis();
@@ -182,7 +194,7 @@ void poll_rs485_slaves() {
         if (motion) {
           sectors[target_id].consecutive_motions++;
           if (sectors[target_id].consecutive_motions >= CONSECUTIVE_MOTION_TRIGGER_COUNT) {
-            trigger_alarm(TRIGGER_MOTION, target_id);
+            trigger_grace_period(TRIGGER_MOTION, target_id);
           }
         } else {
           sectors[target_id].consecutive_motions = 0;
@@ -195,9 +207,12 @@ void poll_rs485_slaves() {
   for (uint8_t i = 2; i <= TOTAL_SECTORS; i++) {
     if (now - sectors[i].last_seen_ms > NODE_OFFLINE_TIMEOUT_MS) {
       sectors[i].online = false;
-      if (sectors[i].enabled && alarm_state == ALARM_STATE_ARMED) {
+      if (sectors[i].enabled &&
+          (alarm_state == ALARM_STATE_ARMED || alarm_state == ALARM_STATE_GRACE)) {
         trigger_alarm(TRIGGER_DISCONNECT, i);
       }
     }
   }
+
+  handle_gateway_rx();
 }

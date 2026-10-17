@@ -69,6 +69,16 @@
         </div>
       </header>
 
+      <div id="graceAlertBanner" class="grace-alert-banner" role="alert" aria-live="assertive" hidden>
+        <div class="grace-alert-message">
+          <strong>Pre-alarma activada:</strong>
+          <span id="graceAlertText">Movimiento detectado. La sirena se activará en 30s.</span>
+        </div>
+        <button id="graceDisarmBtn" class="grace-disarm-btn" type="button">
+          Desarmar Ahora
+        </button>
+      </div>
+
       <!-- Layout Principal: Plano Arquitectónico e Inspector Lateral -->
       <section class="main-workspace" aria-label="Monitoreo de sectores">
         <!-- Columna Izquierda: Mapa Arquitectónico Interactivo -->
@@ -151,6 +161,7 @@
           <footer class="map-legend">
             <span class="legend-item"><span class="legend-dot color-active"></span> Activo / Normal (Azul)</span>
             <span class="legend-item"><span class="legend-dot color-armed"></span> Armado (Verde)</span>
+            <span class="legend-item"><span class="legend-dot color-grace"></span> Pre-alarma / Gracia (Ámbar)</span>
             <span class="legend-item"><span class="legend-dot color-alarm"></span> Disparo / Alarma (Rojo)</span>
             <span class="legend-item"><span class="legend-dot color-disabled"></span> Deshabilitado (Gris)</span>
           </footer>

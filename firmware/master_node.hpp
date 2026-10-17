@@ -23,10 +23,12 @@ AlarmState current_alarm_state();
 TriggerReason current_trigger_reason();
 uint8_t current_trigger_sector();
 uint32_t arming_start_time();
+uint32_t grace_start_time();
 
 void set_alarm_state(AlarmState state);
 void start_arming();
 void disarm_system();
+void trigger_grace_period(TriggerReason reason, uint8_t sector_id);
 void trigger_alarm(TriggerReason reason, uint8_t sector_id);
 
 #endif // MASTER_NODE_HPP
