@@ -651,7 +651,7 @@ task("flash")
         usage = "xmake flash [options]",
         description = "Flash firmware to ESP8266 or Arduino Nano board",
         options = {
-            {'t', "target",     "kv", "auto",       "Target board/firmware ('esp8266', 'nano', or 'auto')"},
+            {'t', "target",     "kv", "auto",       "Target board/firmware ('esp8266', 'master_node', 'nano', or 'auto')"},
             {'p', "port",       "kv", nil,          "Serial port (e.g. /dev/ttyUSB0)"},
             {'b', "baud",       "kv", nil,          "Upload baudrate (e.g. 57600 for old nano, 115200 for optiboot/esp8266)"},
             {'B', "bootloader", "kv", "auto",       "Nano bootloader type ('auto', 'old' for 57600, 'new' for 115200)"},
@@ -677,8 +677,10 @@ task("flash")
         
         if target_name == "esp8266" or target_name == "server" or target_name == "nodemcu" then
             os.exec("xmake build server")
-        elseif target_name == "node_station" or target_name == "nano" or target_name == "arduino" or target_name == "avr" then
-            os.exec("xmake build node_station")
+        elseif target_name == "master_node" or target_name == "master" then
+            os.exec("xmake build master_node")
+        elseif target_name == "node_station" or target_name == "slave_node" or target_name == "nano" or target_name == "arduino" or target_name == "avr" then
+            os.exec("xmake build slave_node")
         else
             os.exec("xmake")
         end

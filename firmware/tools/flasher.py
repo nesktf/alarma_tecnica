@@ -277,7 +277,7 @@ def flash_nano(port, baud, nano_hex, mcu="atmega328p", programmer="arduino", boo
 
 def main():
     parser = argparse.ArgumentParser(description="Unified flasher for ESP8266 and Arduino Nano.")
-    parser.add_argument("-t", "--target", default="auto", choices=["auto", "esp8266", "server", "nodemcu", "nano", "arduino", "node_station", "avr"], help="Target board/firmware")
+    parser.add_argument("-t", "--target", default="auto", choices=["auto", "esp8266", "server", "nodemcu", "master_node", "master", "slave_node", "nano", "arduino", "node_station", "avr"], help="Target board/firmware")
     parser.add_argument("-p", "--port", default=None, help="Serial port (e.g. /dev/ttyUSB0)")
     parser.add_argument("-b", "--baud", type=int, default=None, help="Upload baudrate")
     parser.add_argument("-B", "--bootloader", default="auto", choices=["auto", "old", "new", "optiboot"], help="Nano bootloader type")
@@ -290,23 +290,25 @@ def main():
 
     args = parser.parse_args()
 
+    target_type = args.target.lower()
     build_dir = REPO_ROOT / "build"
     esp_bin = args.esp_bin or (build_dir / "server.bin").as_posix()
     fs_bin = args.fs_bin or (build_dir / "littlefs.bin").as_posix()
     if args.nano_hex:
         nano_hex = args.nano_hex
+    elif target_type in ["master_node", "master"]:
+        nano_hex = (build_dir / "master_node.hex").as_posix()
     elif (build_dir / "node_station.hex").is_file():
         nano_hex = (build_dir / "node_station.hex").as_posix()
     else:
         nano_hex = (build_dir / "nano.hex").as_posix()
 
-    target_type = args.target.lower()
     port = args.port
     baud = args.baud
 
     if target_type in ["esp8266", "server", "nodemcu"]:
         flash_esp8266(port, baud or 115200, esp_bin, fs_bin, args.all)
-    elif target_type in ["nano", "arduino", "node_station", "avr"]:
+    elif target_type in ["master_node", "master", "slave_node", "nano", "arduino", "node_station", "avr"]:
         flash_nano(port, baud, nano_hex, args.mcu, args.programmer, args.bootloader)
     else:  # auto
         detected_type, detected_port, detected_baud = detect_device_and_port(port)

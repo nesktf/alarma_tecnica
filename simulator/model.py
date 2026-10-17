@@ -3,11 +3,96 @@
 from __future__ import annotations
 
 import math
+import struct
 import threading
 import time
 from collections import deque
 from datetime import datetime
 from typing import Callable
+
+GW_SYNC_BYTE = 0x55
+GW_MSG_STATE_SNAPSHOT = 0x01
+GW_MSG_SECTOR_TOGGLE = 0x02
+GW_MSG_MANUAL_PING = 0x03
+GW_MSG_SYSTEM_ARM = 0x04
+GW_MSG_ACK_NACK = 0x05
+
+ALARM_STATE_DISARMED = 0x00
+ALARM_STATE_ARMING = 0x01
+ALARM_STATE_ARMED = 0x02
+ALARM_STATE_ALARM = 0x03
+ALARM_STATE_GRACE = 0x04
+
+ALARM_CODE_TO_STR = {
+    ALARM_STATE_DISARMED: "DISARMED",
+    ALARM_STATE_ARMING: "ARMING",
+    ALARM_STATE_ARMED: "ARMED",
+    ALARM_STATE_ALARM: "ALARM",
+    ALARM_STATE_GRACE: "GRACE",
+}
+
+_GW_HEADER_STRUCT = struct.Struct("<BBBBHHBB")
+_GW_SECTOR_STRUCT = struct.Struct("<BBBBBHI")
+_GW_CRC_STRUCT = struct.Struct("<H")
+_GW_CMD_STRUCT = struct.Struct("<BBBBBH")
+GW_STATE_PACKET_SIZE = _GW_HEADER_STRUCT.size + (5 * _GW_SECTOR_STRUCT.size) + _GW_CRC_STRUCT.size
+GW_CMD_PACKET_SIZE = _GW_CMD_STRUCT.size
+
+
+def crc16_ccitt(data: bytes) -> int:
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+            else:
+                crc = (crc << 1) & 0xFFFF
+    return crc
+
+
+def pack_gw_command(msg_type: int, param1: int, param2: int = 0) -> bytes:
+    header = struct.pack("<BBBBB", GW_SYNC_BYTE, msg_type & 0xFF, 2, param1 & 0xFF, param2 & 0xFF)
+    return header + _GW_CRC_STRUCT.pack(crc16_ccitt(header))
+
+
+def unpack_gw_state_packet(raw: bytes) -> dict | None:
+    if len(raw) != GW_STATE_PACKET_SIZE:
+        return None
+    sync, msg_type, payload_len, alarm_state, arming_s, grace_s, trig_reason, trig_sector = (
+        _GW_HEADER_STRUCT.unpack_from(raw, 0)
+    )
+    if sync != GW_SYNC_BYTE or msg_type != GW_MSG_STATE_SNAPSHOT or payload_len != GW_STATE_PACKET_SIZE - 5:
+        return None
+    (expected_crc,) = _GW_CRC_STRUCT.unpack_from(raw, GW_STATE_PACKET_SIZE - 2)
+    if crc16_ccitt(raw[:-2]) != expected_crc:
+        return None
+
+    sectors = []
+    offset = _GW_HEADER_STRUCT.size
+    for _ in range(5):
+        sec_id, enabled, online, motion, panic, distance_cm, last_seen_ms = _GW_SECTOR_STRUCT.unpack_from(
+            raw, offset
+        )
+        offset += _GW_SECTOR_STRUCT.size
+        sectors.append({
+            "id": sec_id,
+            "enabled": bool(enabled),
+            "online": bool(online),
+            "motion": bool(motion),
+            "panic": bool(panic),
+            "distance_cm": distance_cm,
+            "last_seen_ms": last_seen_ms,
+        })
+
+    return {
+        "alarm_state": alarm_state,
+        "arming_time_s": arming_s,
+        "grace_time_s": grace_s,
+        "trigger_reason": trig_reason,
+        "trigger_sector": trig_sector,
+        "sectors": sectors,
+    }
 
 
 class ControlError(ValueError):
@@ -21,6 +106,7 @@ class DeviceModel:
     SENSOR_MAX_CM = 400.0
     ARMING_DURATION_S = 60
     GRACE_DURATION_S = 30
+    MASTER_BRIDGE_TIMEOUT_S = 3.0
     V_BUS_MIN = 0.0
     V_BUS_MAX = 30.0
     V_BUS_WARNING_V = 11.8
@@ -38,6 +124,10 @@ class DeviceModel:
         self._clock = clock
         self._started_at = clock()
         self._lock = threading.RLock()
+        self._bridge_mode = False
+        self._last_gateway_rx_at: float | None = None
+        self._hw_arming_remaining_s = 0.0
+        self._hw_grace_remaining_s = 0.0
         self._last_sample_at: float | None = self._started_at
         self._last_request = "/"
         self._wifi_available = True
@@ -78,6 +168,120 @@ class DeviceModel:
         }
         self._log("Simulator started; NodeMCU boot sequence complete")
 
+    def enable_bridge_mode(self) -> None:
+        with self._lock:
+            self._bridge_mode = True
+            self._last_gateway_rx_at = None
+            self._last_distance_cm = None
+            for sector in self._sectors.values():
+                sector["no_response"] = True
+                sector["motion"] = False
+                sector["active"] = False
+            for node_id in range(1, 6):
+                self._nodes_state[node_id]["online"] = False
+                self._nodes_state[node_id]["distance_cm"] = 0
+                self._nodes_state[node_id]["last_seen_ms"] = 0
+            self._log("Serial bridge mode enabled; waiting for Master Nano")
+
+    @property
+    def bridge_mode(self) -> bool:
+        with self._lock:
+            return self._bridge_mode
+
+    def apply_gateway_snapshot(self, packet: bytes | dict) -> bool:
+        if isinstance(packet, (bytes, bytearray, memoryview)):
+            parsed = unpack_gw_state_packet(bytes(packet))
+            if parsed is None:
+                return False
+        elif isinstance(packet, dict):
+            parsed = packet
+        else:
+            return False
+
+        with self._lock:
+            now = self._clock()
+            was_connected = (
+                self._last_gateway_rx_at is not None
+                and (now - self._last_gateway_rx_at) <= self.MASTER_BRIDGE_TIMEOUT_S
+            )
+            self._bridge_mode = True
+            self._last_gateway_rx_at = now
+            self._last_sample_at = now
+            if not was_connected:
+                self._log("Master Nano connected via serial bridge")
+
+            raw_state = parsed.get("alarm_state", ALARM_STATE_DISARMED)
+            state_str = (
+                raw_state
+                if isinstance(raw_state, str) and raw_state in self.ALARM_STATES
+                else ALARM_CODE_TO_STR.get(int(raw_state), "DISARMED")
+            )
+            prev_state = self._alarm_state
+            self._alarm_state = state_str
+            self._hw_arming_remaining_s = float(parsed.get("arming_time_s", 0))
+            self._hw_grace_remaining_s = float(parsed.get("grace_time_s", 0))
+            self._trigger_reason = int(parsed.get("trigger_reason", 0))
+            self._trigger_sector = int(parsed.get("trigger_sector", 0))
+
+            if prev_state != state_str:
+                self._record_alarm_event(
+                    "critical" if state_str == "ALARM" else "warning" if state_str in {"ARMING", "GRACE", "ARMED"} else "info",
+                    f"ALARM_STATE_{state_str}",
+                    f"Estado central: {state_str}",
+                    f"Transición desde {prev_state}.",
+                )
+                self._log(f"Alarm state changed to {state_str}")
+
+            for sec_data in parsed.get("sectors", []):
+                sec_id = int(sec_data["id"])
+                if sec_id not in self._sectors:
+                    continue
+                sector = self._sectors[sec_id]
+                prev_motion = sector["motion"]
+                prev_panic = sector["active"]
+
+                enabled = bool(sec_data.get("enabled", True))
+                online = bool(sec_data.get("online", False))
+                motion = bool(sec_data.get("motion", False))
+                panic = bool(sec_data.get("panic", False))
+                dist_cm = int(sec_data.get("distance_cm", 0))
+                age_ms = int(sec_data.get("last_seen_ms", 0))
+
+                sector["enabled"] = enabled
+                sector["no_response"] = not online
+                sector["motion"] = motion
+                sector["active"] = panic
+
+                node = self._nodes_state[sec_id]
+                node["distance_cm"] = dist_cm
+                node["online"] = online
+                node["last_seen_ms"] = age_ms
+                node["status"] = (0x08 if online else 0) | (0x04 if panic else 0) | (0x01 if motion else 0)
+
+                if sec_id == 1:
+                    if self.SENSOR_MIN_CM <= dist_cm <= self.SENSOR_MAX_CM:
+                        self._distance_cm = float(dist_cm)
+                    self._last_distance_cm = float(dist_cm) if online else None
+
+                if panic and not prev_panic:
+                    self._record_alarm_event(
+                        "critical",
+                        "EMERGENCY_TRIGGERED",
+                        "Pulsador de emergencia",
+                        "Pulsador físico activado.",
+                        sec_id,
+                    )
+                if motion != prev_motion:
+                    self._record_alarm_event(
+                        "warning" if motion else "info",
+                        "MOTION_ON" if motion else "MOTION_OFF",
+                        "Movimiento detectado" if motion else "Movimiento cancelado",
+                        f"Distancia medida: {dist_cm} cm.",
+                        sec_id,
+                    )
+
+            return True
+
     def _log(self, message: str) -> None:
         timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
         self._logs.append(f"{timestamp}  {message}")
@@ -102,7 +306,7 @@ class DeviceModel:
         return "running"
 
     def _sample_if_due(self, now: float) -> None:
-        if self._boot_state != "running":
+        if self._bridge_mode or self._boot_state != "running":
             return
         elapsed_ms = 0 if self._last_sample_at is None else (now - self._last_sample_at) * 1000
         if self._last_sample_at is None or elapsed_ms >= self.SAMPLE_INTERVAL_MS - 1e-9:
@@ -130,12 +334,21 @@ class DeviceModel:
         if state == "running" and self._last_sample_at is not None:
             age_ms = max(0, int((now - self._last_sample_at) * 1000))
 
+        if self._bridge_mode:
+            master_connected = (
+                state == "running"
+                and self._last_gateway_rx_at is not None
+                and (now - self._last_gateway_rx_at) <= self.MASTER_BRIDGE_TIMEOUT_S
+            )
+        else:
+            master_connected = state == "running"
+
         return {
             "simulator": True,
             "board": "NodeMCU ESP8266",
             "state": state,
             "gateway_online": True,
-            "master_connected": state == "running",
+            "master_connected": master_connected,
             "uptime_ms": max(0, int((now - self._started_at) * 1000)),
             "wifi": self._wifi_available,
             "filesystem": self._filesystem_mounts,
@@ -184,7 +397,11 @@ class DeviceModel:
                     "motion": s["motion"],
                     "panic": s["active"],
                     "distance_cm": self._nodes_state[s["id"]]["distance_cm"],
-                    "age_ms": age_ms or 0,
+                    "age_ms": (
+                        self._nodes_state[s["id"]]["last_seen_ms"]
+                        if self._bridge_mode
+                        else (age_ms or 0)
+                    ),
                 }
                 for s in self._sectors.values()
             ],
@@ -215,12 +432,18 @@ class DeviceModel:
             sectors.append({**sector, "status": status, "projected": False})
 
         remaining = 0.0
-        if self._alarm_state == "ARMING" and self._arming_until is not None:
-            remaining = max(0.0, self._arming_until - now)
+        if self._alarm_state == "ARMING":
+            if self._bridge_mode:
+                remaining = max(0.0, self._hw_arming_remaining_s)
+            elif self._arming_until is not None:
+                remaining = max(0.0, self._arming_until - now)
 
         grace_remaining = 0.0
-        if self._alarm_state == "GRACE" and self._grace_until is not None:
-            grace_remaining = max(0.0, self._grace_until - now)
+        if self._alarm_state == "GRACE":
+            if self._bridge_mode:
+                grace_remaining = max(0.0, self._hw_grace_remaining_s)
+            elif self._grace_until is not None:
+                grace_remaining = max(0.0, self._grace_until - now)
 
         v_bus_status = (
             "alarm" if self._v_bus < self.V_BUS_CRITICAL_V
@@ -326,6 +549,8 @@ class DeviceModel:
                     break
 
     def _update_arming(self, now: float) -> None:
+        if self._bridge_mode:
+            return
         if (
             self._alarm_state == "ARMING"
             and self._arming_until is not None
